@@ -1,0 +1,8 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+#ifndef TROJAN_MBEDTLS_USER_CONFIG_H
+#define TROJAN_MBEDTLS_USER_CONFIG_H
+
+#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_ALT
+
+#endif
