@@ -1,0 +1,27 @@
+<Project>
+
+    <PropertyGroup>
+        <Version>7.25.6</Version>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>14.0</LangVersion>
+        <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+        <Nullable>annotations</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Authors>2dust</Authors>
+        <PackageLicenseExpression>GPL-3.0</PackageLicenseExpression>
+        <Copyright>Copyright © 2017-$([System.DateTime]::UtcNow.Year) $(Authors)</Copyright>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="PolySharp" PrivateAssets="all" />
+        <Reference Include="System.Net.Http" />
+        <Using Include="System.Net.Http" />
+        <Using Include="System.Collections.Concurrent" />
+        <Using Include="Win7" />
+        <Compile Include="$(MSBuildThisFileDirectory)FrameworkIO.cs" Link="FrameworkIO.cs" />
+        <Compile Include="$(MSBuildThisFileDirectory)FrameworkCollections.cs" Link="FrameworkCollections.cs" />
+    </ItemGroup>
+</Project>

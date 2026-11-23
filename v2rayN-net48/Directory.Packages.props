@@ -1,0 +1,30 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <CentralPackageVersionOverrideEnabled>false</CentralPackageVersionOverrideEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="IPNetwork2" Version="4.3.0" />
+    <PackageVersion Include="CliWrap" Version="3.10.5" />
+    <PackageVersion Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <PackageVersion Include="MaterialDesignThemes" Version="5.3.2" />
+    <PackageVersion Include="QRCoder" Version="1.8.0" />
+    <PackageVersion Include="ReactiveUI" Version="24.3.0" />
+    <PackageVersion Include="ReactiveUI.SourceGenerators" Version="3.2.0" />
+    <PackageVersion Include="ReactiveUI.WPF" Version="24.2.0" />
+    <PackageVersion Include="NLog" Version="6.2.1" />
+    <PackageVersion Include="sqlite-net-e" Version="1.11.285" />
+    <PackageVersion Include="Repobot.SQLite.Unofficial" Version="3.53.4.1" />
+    <PackageVersion Include="TaskScheduler" Version="2.12.2" />
+    <PackageVersion Include="WebDav.Client" Version="2.9.0" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
+    <PackageVersion Include="ZXing.Net" Version="0.16.8" />
+    <PackageVersion Include="System.Formats.Asn1" Version="10.0.15" />
+    <PackageVersion Include="PolySharp" Version="1.16.0" />
+    <PackageVersion Include="Microsoft.Bcl.HashCode" Version="6.0.0" />
+    <PackageVersion Include="System.Memory" Version="4.6.3" />
+    <PackageVersion Include="System.Text.Json" Version="10.0.15" />
+    <PackageVersion Include="System.Resources.Extensions" Version="10.0.15" />
+  </ItemGroup>
+</Project>
