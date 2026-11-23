@@ -5,7 +5,7 @@
 | 目录 | 说明 |
 | --- | --- |
 | [`v2rayN-win7`](v2rayN-win7/) | 基于 v2rayN 5.39 改造的桌面客户端（Windows Forms / .NET Framework 4.8），集成 Cray 内核与批量真连接测速 |
-| [`Cray`](Cray/) | 默认随包内核，基于 C11 与 Mbed TLS 3.6，支持 Trojan（TCP + TLS）和 VMess AEAD（TCP，可选 TLS），提供本地 HTTP 与 SOCKS5 代理 |
+| [`Cray`](Cray/) | 默认随包内核，基于 C11 与 Mbed TLS 3.6，支持 Trojan（TCP + TLS）、VMess AEAD 和标准 VLESS（TCP，可选 TLS），提供本地 HTTP 与 SOCKS5 代理 |
 | [`xray`](xray/) | 基于 XTLS Win7 补丁版 Go 1.27.4 的 Xray-core v26.11.9 独立构建脚本，含 AnyTLS 实验性出站/入站补丁 |
 | [`docs`](docs/) | 使用说明、编译指南与 Win7 兼容性验证文档 |
 | [`licenses`](licenses/) | 随包第三方依赖的开源许可证与版权声明 |

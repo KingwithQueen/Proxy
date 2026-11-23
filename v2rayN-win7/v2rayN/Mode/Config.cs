@@ -392,7 +392,8 @@ namespace v2rayN.Mode
         }
         public string GetNetwork()
         {
-            if (Utils.IsNullOrEmpty(network) || !Global.networks.Contains(network))
+            if (Utils.IsNullOrEmpty(network) ||
+                (configType != EConfigType.VLESS && !Global.networks.Contains(network)))
             {
                 return Global.DefaultNetwork;
             }

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core.h"
+#include "vless.h"
 #include "vmess.h"
 
 #include <bcrypt.h>
@@ -23,8 +24,10 @@ typedef struct {
 typedef struct {
     mbedtls_ssl_context context;
     SOCKET socket;
+    OutboundProtocol protocol;
     bool use_tls;
     VmessSession *vmess;
+    VlessSession vless;
     RelayBuffer *output;
     int read_status;
 } UpstreamSession;
@@ -456,7 +459,7 @@ static Readiness want(int result)
     return STREAM_READY;
 }
 
-static int recv_vmess(void *opaque, void *data, size_t size)
+static int recv_upstream(void *opaque, void *data, size_t size)
 {
     UpstreamSession *session = opaque;
     int result = stream_read(session, data, size);
@@ -464,6 +467,22 @@ static int recv_vmess(void *opaque, void *data, size_t size)
     if (want(result) != STREAM_READY)
         return -2;
     return result < 0 ? -1 : result;
+}
+
+static int read_proxy_data(UpstreamSession *session, unsigned char *data, size_t size)
+{
+    int result;
+    switch (session->protocol) {
+    case OUTBOUND_VMESS:
+        result = vmess_read(session->vmess, data, size, recv_upstream);
+        break;
+    case OUTBOUND_VLESS:
+        result = vless_read(&session->vless, session, data, size, recv_upstream);
+        break;
+    default:
+        return stream_read(session, data, size);
+    }
+    return result == -2 ? session->read_status : result;
 }
 
 static bool queue_upload(UpstreamSession *session, const unsigned char *data, size_t size)
@@ -583,14 +602,8 @@ static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
         }
         if (reading && (!session->use_tls || write_retry == STREAM_READY) &&
             (decrypted_pending || ready(upstream, read_when, &reads, &writes))) {
-            int received;
-            if (session->vmess) {
-                received = vmess_read(session->vmess, to_local.data, RELAY_BUFFER_SIZE, recv_vmess);
-                read_retry = received == -2 ? want(session->read_status) : STREAM_READY;
-            } else {
-                received = stream_read(session, to_local.data, RELAY_BUFFER_SIZE);
-                read_retry = want(received);
-            }
+            int received = read_proxy_data(session, to_local.data, RELAY_BUFFER_SIZE);
+            read_retry = want(received);
             if (received > 0) {
                 to_local.offset = 0;
                 to_local.end = (size_t)received;
@@ -609,12 +622,22 @@ void serve_upstream(SOCKET local, LocalRequest *request, const TlsConfig *tls,
                     const Settings *settings)
 {
     UpstreamSession session = { 0 };
+    session.protocol = settings->protocol;
     bool connected = stream_connect(&session, tls, settings);
-    if (connected && settings->protocol == OUTBOUND_VMESS) {
-        session.vmess = vmess_open(settings, &request->target, &session, send_upstream);
-        connected = session.vmess != NULL;
-    } else if (connected) {
-        connected = send_trojan_request(&session, settings, &request->target);
+    if (connected) {
+        switch (settings->protocol) {
+        case OUTBOUND_VMESS:
+            session.vmess = vmess_open(settings, &request->target, &session, send_upstream);
+            connected = session.vmess != NULL;
+            break;
+        case OUTBOUND_VLESS:
+            connected = vless_open(&session.vless, settings, &request->target, &session,
+                                   send_upstream);
+            break;
+        case OUTBOUND_TROJAN:
+            connected = send_trojan_request(&session, settings, &request->target);
+            break;
+        }
     }
     if (reply_local(local, request->protocol, connected) && connected)
         relay(local, &session, request,

@@ -8,7 +8,7 @@
 3. 运行 `v2rayN.exe`，双击系统托盘图标打开主窗口。
 
 ### 2. 添加与启用节点
-- **导入节点**：复制 `trojan://` 或 `vmess://` 节点链接后在主界面按 `Ctrl+V` 即可导入，也可通过顶部「服务器」菜单手动添加节点。
+- **导入节点**：复制 `trojan://`、`vmess://` 或 `vless://` 节点链接后在主界面按 `Ctrl+V` 即可导入，也可通过顶部「服务器」菜单手动添加节点。
 - **启动代理**：在列表中选中节点并设为活动节点（或按 `Enter`）。内核启动后，可在主窗口底部或托盘菜单中开启「系统代理」。
 - **本地监听端口**：默认在 `127.0.0.1` 提供 SOCKS5（端口 `10808`）与 HTTP（端口 `10809`）代理。若修改过端口设置，请以主窗口底部状态栏显示的实际端口为准。
 
@@ -18,8 +18,8 @@
 - **单选/多选测速**：选中一个或多个节点后按 `Ctrl+R`（或通过右键菜单），可仅对所选节点测试真连接延迟。
 
 ### 4. Cray 内核特性与证书校验
-- **协议范围**：Cray 支持 TCP + TLS 的 Trojan 节点，以及标准 TCP 上的 VMess AEAD 节点（`alterId` 为 `0`，可选 TLS）。手动添加 VMess 节点时，填写标准 UUID，传输选 `tcp`，包头伪装选 `none`。导入时也接受 `raw` 作为 `tcp` 的别名。本地入站支持 SOCKS5 `CONNECT`、HTTP `CONNECT` 及普通 HTTP 代理转发。
-- **VMess 内核选择**：自动选择时，兼容的 VMess 节点使用 Cray，其他 VMess 节点使用 Xray。已指定的节点内核或 VMess 全局内核优先。可在「参数设置」的「Core类型设置」页将 VMess 设为「自动」恢复自动选择。
+- **协议范围**：Cray 支持 Trojan（TCP + TLS）、VMess AEAD（`alterId` 为 `0`）和标准 VLESS（`encryption=none`，`flow` 留空）。VMess 和 VLESS 使用标准 UUID，传输选 `tcp`，包头伪装选 `none`，TLS 可单独启用。导入时也接受 `raw` 作为 `tcp` 的别名。本地入站支持 SOCKS5 `CONNECT`、HTTP `CONNECT` 及普通 HTTP 代理转发。
+- **内核选择**：设为「自动」时，兼容的 VMess 和 VLESS 节点使用 Cray，其他节点使用 Xray。已指定的节点内核或协议全局内核优先。可在「参数设置」的「Core类型设置」页恢复自动选择。
 - **TLS 证书校验**：默认开启服务端证书链与主机名（SAN）校验。
   - 若节点地址填写的是 IP，而服务端证书签发给域名，请在节点配置中填写对应的 **SNI**。
   - 若服务端使用自签名或私有 CA 签发的证书，可将根证书导入 Windows「受信任的根证书颁发机构」存储，或在独立运行时通过 `ca_file` 指定。
@@ -65,19 +65,36 @@ Cray.exe -config config.json
 }
 ```
 
+以下是标准 VLESS 的 TCP + TLS 配置示例。`encryption` 省略时默认为 `none`，公网连接通过外层 TLS 保护 UUID 和代理数据。 [Xray VLESS 配置](https://xtls.github.io/config/inbounds/vless.html)
+
+```json
+{
+  "protocol": "vless",
+  "server": "vless.example.com",
+  "server_port": 443,
+  "uuid": "de305d54-75b4-431b-adb2-eb6b9e546014",
+  "encryption": "none",
+  "tls": true,
+  "sni": "vless.example.com",
+  "socks_port": 10808,
+  "http_port": 10809
+}
+```
+
 ### 配置项说明
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `protocol` | `string` | 否 | `trojan` | 出站协议，可选 `trojan` 或 `vmess` |
+| `protocol` | `string` | 否 | `trojan` | 出站协议，可选 `trojan`、`vmess` 或 `vless` |
 | `server` | `string` | 是 | - | 服务端域名或 IPv4/IPv6 地址 |
 | `server_port` | `uint16` | 否 | `443` | 服务端端口（`1`–`65535`） |
 | `password` | `string` | Trojan 二选一 | - | Trojan 节点明文密码 |
 | `password_sha224` | `string` | Trojan 二选一 | - | 预先计算的 56 位十六进制 SHA-224 密码哈希 |
-| `uuid` | `string` | VMess 必填 | - | VMess 用户 UUID，采用 `8-4-4-4-12` 十六进制格式 |
+| `uuid` | `string` | VMess、VLESS 必填 | - | 用户 UUID，采用 `8-4-4-4-12` 十六进制格式 |
 | `alter_id` | `integer` | 否 | `0` | VMess AEAD 固定为 `0` |
 | `security` | `string` | 否 | `auto` | VMess 数据加密方式，`auto` 使用 `aes-128-gcm`，也可显式选 `aes-128-gcm` 或 `chacha20-poly1305` |
-| `tls` | `bool` | 否 | Trojan `true`，VMess `false` | 是否在 TCP 上启用 TLS。Trojan 固定启用 |
+| `encryption` | `string` | 否 | `none` | VLESS 协议层加密设置，支持 `none` |
+| `tls` | `bool` | 否 | Trojan `true`，VMess 和 VLESS `false` | 是否在 TCP 上启用 TLS。Trojan 固定启用 |
 | `sni` | `string` | 否 | 同 `server` | TLS 握手与证书校验使用的主机名 |
 | `verify_tls` | `bool` | 否 | `true` | 是否校验服务端 TLS 证书（建议保持开启） |
 | `socks_port` | `uint16` | 否 | `10808` | 本地 `127.0.0.1` SOCKS5 监听端口，设为 `0` 则禁用 |

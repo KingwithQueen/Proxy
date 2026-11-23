@@ -121,14 +121,16 @@ namespace v2rayN.Forms
                 config.coreTypeItem.Add(new CoreTypeItem()
                 {
                     configType = it,
-                    coreType = it == EConfigType.VMess ? (ECoreType?)null : LazyConfig.GetDefaultCoreType(it)
+                    coreType = LazyConfig.HasAutomaticCoreSelection(it)
+                        ? (ECoreType?)null
+                        : LazyConfig.GetDefaultCoreType(it)
                 });
             }
             for (int k = 1; k <= config.coreTypeItem.Count; k++)
             {
                 var item = config.coreTypeItem[k - 1];
                 var corePicker = (ComboBox)tabPageCoreType.Controls[$"cmbCoreType{k}"];
-                var automatic = item.configType == EConfigType.VMess;
+                var automatic = LazyConfig.HasAutomaticCoreSelection(item.configType);
                 if (automatic)
                 {
                     corePicker.Items.Add(ResUI.CoreTypeAuto);
@@ -323,7 +325,7 @@ namespace v2rayN.Forms
             {
                 var item = config.coreTypeItem[k - 1];
                 var coreName = tabPageCoreType.Controls[$"cmbCoreType{k}"].Text;
-                if (item.configType == EConfigType.VMess && coreName == ResUI.CoreTypeAuto)
+                if (LazyConfig.HasAutomaticCoreSelection(item.configType) && coreName == ResUI.CoreTypeAuto)
                 {
                     item.coreType = null;
                 }

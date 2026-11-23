@@ -39,14 +39,14 @@ namespace v2rayN.Forms
         {
             Init(item);
 
-            cmbNetwork.Text = vmessItem.network;
-            cmbHeaderType.Text = vmessItem.headerType;
+            BindTransportValue(cmbNetwork, vmessItem.network);
+            BindTransportValue(cmbHeaderType, vmessItem.headerType);
             txtRequestHost.Text = vmessItem.requestHost;
             txtPath.Text = vmessItem.path;
-            cmbStreamSecurity.Text = vmessItem.streamSecurity;
+            BindTransportValue(cmbStreamSecurity, vmessItem.streamSecurity);
             cmbAllowInsecure.Text = vmessItem.allowInsecure;
             txtSNI.Text = vmessItem.sni;
-            cmbFingerprint.Text = vmessItem.fingerprint;
+            BindTransportValue(cmbFingerprint, vmessItem.fingerprint);
 
             if (vmessItem.alpn != null)
             {
@@ -58,6 +58,16 @@ namespace v2rayN.Forms
                     }
                 }
             }
+        }
+
+        private void BindTransportValue(ComboBox picker, string value)
+        {
+            if (vmessItem.configType == EConfigType.VLESS &&
+                !string.IsNullOrWhiteSpace(value) && !picker.Items.Contains(value))
+            {
+                picker.Items.Add(value);
+            }
+            picker.Text = value;
         }
 
         public void ClearServer(VmessItem item)

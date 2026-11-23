@@ -176,6 +176,10 @@ namespace v2rayN.Handler
                 dicQuery.Add("encryption", "none");
             }
             GetStdTransport(item, "none", ref dicQuery);
+            if (!string.IsNullOrWhiteSpace(item.fingerprint))
+            {
+                dicQuery.Add("fp", Utils.UrlEncode(item.fingerprint));
+            }
             string query = "?" + string.Join("&", dicQuery.Select(x => x.Key + "=" + x.Value).ToArray());
 
             url = string.Format("{0}@{1}:{2}",
@@ -290,9 +294,11 @@ namespace v2rayN.Handler
         /// <param name="fileName"></param>
         /// <param name="msg"></param>
         /// <returns></returns>
-        public static VmessItem ImportFromClipboardConfig(string clipboardData, out string msg)
+        public static VmessItem ImportFromClipboardConfig(string clipboardData, out string msg,
+            out bool unsupportedSettings)
         {
             msg = string.Empty;
+            unsupportedSettings = false;
             VmessItem vmessItem = new VmessItem();
 
             try
@@ -359,7 +365,13 @@ namespace v2rayN.Handler
                 }
                 else if (result.StartsWith(Global.vlessProtocol))
                 {
-                    vmessItem = ResolveStdVLESS(result);
+                    vmessItem = ResolveStdVLESS(result, out unsupportedSettings);
+                    if (unsupportedSettings)
+                    {
+                        msg = ResUI.VlessShareTlsSettings;
+                        Utils.SaveLog(msg);
+                        return null;
+                    }
 
                     ConfigHandler.UpgradeServerVersion(ref vmessItem);
                 }
@@ -759,7 +771,7 @@ namespace v2rayN.Handler
 
             return item;
         }
-        private static VmessItem ResolveStdVLESS(string result)
+        private static VmessItem ResolveStdVLESS(string result, out bool unsupportedSettings)
         {
             VmessItem item = new VmessItem
             {
@@ -775,8 +787,14 @@ namespace v2rayN.Handler
             item.id = url.UserInfo;
 
             var query = HttpUtility.ParseQueryString(url.Query);
+            unsupportedSettings = !string.IsNullOrWhiteSpace(query["ech"])
+                || !string.IsNullOrWhiteSpace(query["pcs"]) || !string.IsNullOrWhiteSpace(query["vcn"]);
+            if (unsupportedSettings)
+            {
+                return null;
+            }
             item.security = query["encryption"] ?? "none";
-            item.streamSecurity = query["security"] ?? "";
+            item.fingerprint = query["fp"] ?? "";
             ResolveStdTransport(query, ref item);
 
             return item;
@@ -789,6 +807,15 @@ namespace v2rayN.Handler
             item.sni = query["sni"] ?? "";
             item.alpn = Utils.String2List(Utils.UrlDecode(query["alpn"] ?? ""));
             item.network = query["type"] ?? "tcp";
+            if (item.configType == EConfigType.VLESS)
+            {
+                item.network = item.network.Trim();
+                if (item.network.Length == 0 || item.network.Equals("raw", StringComparison.OrdinalIgnoreCase)
+                    || item.network.Equals(Global.DefaultNetwork, StringComparison.OrdinalIgnoreCase))
+                {
+                    item.network = Global.DefaultNetwork;
+                }
+            }
             switch (item.network)
             {
                 case "tcp":

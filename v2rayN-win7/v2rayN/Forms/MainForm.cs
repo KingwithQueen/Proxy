@@ -1006,11 +1006,23 @@ namespace v2rayN.Forms
         private void menuAddServers_Click(object sender, EventArgs e)
         {
             string clipboardData = Utils.GetClipboardData();
-            int ret = ConfigHandler.AddBatchServers(ref config, clipboardData, "", _groupId);
+            int ret = ConfigHandler.AddBatchServers(ref config, clipboardData, "", _groupId, out string error);
             if (ret > 0)
             {
                 RefreshServers();
-                UI.Show(string.Format(ResUI.SuccessfullyImportedServerViaClipboard, ret));
+                string summary = string.Format(ResUI.SuccessfullyImportedServerViaClipboard, ret);
+                if (string.IsNullOrWhiteSpace(error))
+                {
+                    UI.Show(summary);
+                }
+                else
+                {
+                    UI.ShowWarning(summary + Environment.NewLine + error);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                UI.ShowWarning(error);
             }
         }
 
@@ -1036,11 +1048,15 @@ namespace v2rayN.Forms
             }
             else
             {
-                int ret = ConfigHandler.AddBatchServers(ref config, result, "", _groupId);
+                int ret = ConfigHandler.AddBatchServers(ref config, result, "", _groupId, out string error);
                 if (ret > 0)
                 {
                     RefreshServers();
                     UI.Show(ResUI.SuccessfullyImportedServerViaScan);
+                }
+                else if (!string.IsNullOrWhiteSpace(error))
+                {
+                    UI.ShowWarning(error);
                 }
             }
         }

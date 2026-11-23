@@ -12,6 +12,7 @@
 
 enum {
     MAX_HOST = 255,
+    V2RAY_ADDRESS_SIZE = 4 + MAX_HOST,
     MAX_ALPN = 16,
     AUTH_HEX_SIZE = 56,
     HANDSHAKE_TIMEOUT = 15000,
@@ -23,7 +24,8 @@ enum {
 
 typedef enum {
     OUTBOUND_TROJAN,
-    OUTBOUND_VMESS
+    OUTBOUND_VMESS,
+    OUTBOUND_VLESS
 } OutboundProtocol;
 
 typedef enum {
@@ -38,7 +40,7 @@ typedef struct {
     char sni[MAX_HOST + 1];
     unsigned short server_port, socks_port, http_port;
     char password_hash[AUTH_HEX_SIZE + 1];
-    unsigned char vmess_uuid[16];
+    unsigned char uuid[16];
     OutboundProtocol protocol;
     VmessSecurity vmess_security;
     wchar_t ca_file[1024];
@@ -98,6 +100,7 @@ typedef struct {
 
 bool read_settings(Settings *settings, const wchar_t *file);
 bool normalize_host(char host[MAX_HOST + 1]);
+size_t write_v2ray_address(unsigned char output[V2RAY_ADDRESS_SIZE], const Destination *target);
 
 bool set_nonblocking(SOCKET socket);
 int wait_socket(SOCKET socket, bool read, ULONGLONG deadline);

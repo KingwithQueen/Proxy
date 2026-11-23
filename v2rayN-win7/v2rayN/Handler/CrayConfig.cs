@@ -10,35 +10,47 @@ namespace v2rayN.Handler
 {
     internal static class CrayConfig
     {
-        public static bool SupportsVmess(VmessItem node)
+        public static bool SupportsNode(VmessItem node)
         {
-            return node?.configType == EConfigType.VMess && GetNodeError(node) == null;
+            return GetNodeError(node) == null;
         }
 
         private static string GetNodeError(VmessItem node)
         {
             bool vmess = node?.configType == EConfigType.VMess;
-            if ((!vmess && node?.configType != EConfigType.Trojan)
+            bool vless = node?.configType == EConfigType.VLESS;
+            bool usesUuid = vmess || vless;
+            if ((!usesUuid && node?.configType != EConfigType.Trojan)
                 || string.IsNullOrWhiteSpace(node.address) || string.IsNullOrEmpty(node.id)
                 || node.port < 1 || node.port > 65535)
             {
                 return ResUI.CheckServerSettings;
             }
 
-            if ((!EmptyOrEquals(node.network, Global.DefaultNetwork) && !(vmess && EqualsSetting(node.network, "raw")))
+            if ((!EmptyOrEquals(node.network, Global.DefaultNetwork) && !(usesUuid && EqualsSetting(node.network, "raw")))
                 || !EmptyOrEquals(node.headerType, Global.None)
                 || (!EmptyOrEquals(node.streamSecurity, Global.StreamSecurity)
-                    && !(vmess && EqualsSetting(node.streamSecurity, Global.None)))
+                    && !(usesUuid && EqualsSetting(node.streamSecurity, Global.None)))
                 || !string.IsNullOrWhiteSpace(node.flow)
                 || !EmptyOrEquals(node.fingerprint, Global.None))
             {
                 return ResUI.CrayTransport;
             }
 
-            if (vmess && (node.alterId != 0 || !Guid.TryParseExact(node.id.Trim(), "D", out _)
+            if (usesUuid && !Guid.TryParseExact(node.id.Trim(), "D", out _))
+            {
+                return vmess ? ResUI.CrayVmessSettings : ResUI.CrayVlessSettings;
+            }
+
+            if (vmess && (node.alterId != 0
                 || !Global.vmessSecuritys.Contains(GetVmessSecurity(node))))
             {
                 return ResUI.CrayVmessSettings;
+            }
+
+            if (vless && !EmptyOrEquals(node.security, Global.None))
+            {
+                return ResUI.CrayVlessSettings;
             }
 
             return null;
@@ -59,7 +71,9 @@ namespace v2rayN.Handler
             }
 
             bool vmess = node.configType == EConfigType.VMess;
-            bool useTls = !vmess || EqualsSetting(node.streamSecurity, Global.StreamSecurity);
+            bool vless = node.configType == EConfigType.VLESS;
+            bool usesUuid = vmess || vless;
+            bool useTls = !usesUuid || EqualsSetting(node.streamSecurity, Global.StreamSecurity);
             string sni = null;
             bool? verifyTls = null;
             if (useTls)
@@ -77,14 +91,15 @@ namespace v2rayN.Handler
 
             return JsonConvert.SerializeObject(new
             {
-                protocol = vmess ? "vmess" : null,
+                protocol = vmess ? Global.vmessProtocolLite : vless ? Global.vlessProtocolLite : null,
                 server = NormalizeHost(node.address),
                 server_port = node.port,
-                password = vmess ? null : node.id,
-                uuid = vmess ? Guid.ParseExact(node.id.Trim(), "D").ToString("D") : null,
+                password = usesUuid ? null : node.id,
+                uuid = usesUuid ? Guid.ParseExact(node.id.Trim(), "D").ToString("D") : null,
                 alter_id = vmess ? (int?)node.alterId : null,
                 security = vmess ? GetVmessSecurity(node) : null,
-                tls = vmess ? (bool?)useTls : null,
+                encryption = vless ? Global.None : null,
+                tls = usesUuid ? (bool?)useTls : null,
                 sni = string.IsNullOrEmpty(sni) ? null : NormalizeHost(sni),
                 verify_tls = verifyTls,
                 socks_port = socksPort,

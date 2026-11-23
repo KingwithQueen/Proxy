@@ -9,6 +9,28 @@ typedef struct {
     char *name, *value;
 } Header;
 
+/* VMess 和 VLESS 使用同一地址格式，端口在地址类型之前。 */
+size_t write_v2ray_address(unsigned char output[V2RAY_ADDRESS_SIZE], const Destination *target)
+{
+    output[0] = (unsigned char)(target->port >> 8);
+    output[1] = (unsigned char)target->port;
+    if (InetPtonA(AF_INET, target->host, output + 3) == 1) {
+        output[2] = 1;
+        return 7;
+    }
+    if (InetPtonA(AF_INET6, target->host, output + 3) == 1) {
+        output[2] = 3;
+        return 19;
+    }
+    size_t length = strlen(target->host);
+    if (!length || length > MAX_HOST)
+        return 0;
+    output[2] = 2;
+    output[3] = (unsigned char)length;
+    memcpy(output + 4, target->host, length);
+    return 4 + length;
+}
+
 bool set_nonblocking(SOCKET socket)
 {
     u_long mode = 1;

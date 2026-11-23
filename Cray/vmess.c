@@ -25,7 +25,7 @@ enum {
     ENCRYPTED_LENGTH_SIZE = LENGTH_SIZE + TAG_SIZE,
     MAX_HEADER_PADDING = 15,
     MAX_CHUNK_PADDING = 63,
-    MAX_REQUEST_HEADER = 38 + 2 + 2 + MAX_HOST + MAX_HEADER_PADDING + 4,
+    MAX_REQUEST_HEADER = 38 + V2RAY_ADDRESS_SIZE + MAX_HEADER_PADDING + 4,
     MAX_RESPONSE_HEADER = 4 + 255,
     MAX_CHUNK = 16384,
     MAX_CHUNK_PAYLOAD = MAX_CHUNK - LENGTH_SIZE - TAG_SIZE - MAX_CHUNK_PADDING,
@@ -304,24 +304,6 @@ static bool decrypt_header_part(VmessSession *session, bool length_part, size_t 
     return success;
 }
 
-static size_t write_address(unsigned char *output, const Destination *target)
-{
-    write_uint16(output, target->port);
-    if (InetPtonA(AF_INET, target->host, output + 3) == 1) {
-        output[2] = 1;
-        return 7;
-    }
-    if (InetPtonA(AF_INET6, target->host, output + 3) == 1) {
-        output[2] = 3;
-        return 19;
-    }
-    size_t size = strlen(target->host);
-    output[2] = 2;
-    output[3] = (unsigned char)size;
-    memcpy(output + 4, target->host, size);
-    return 4 + size;
-}
-
 static size_t body_tag_size(VmessSecurity security)
 {
     return security == VMESS_SECURITY_AES_128_GCM || security == VMESS_SECURITY_CHACHA20_POLY1305 ? TAG_SIZE : 0;
@@ -338,6 +320,9 @@ static bool send_request_header(VmessSession *session, const Settings *settings,
     unsigned char *length_wire = wire + AUTH_ID_SIZE;
     unsigned char *connection_nonce = length_wire + ENCRYPTED_LENGTH_SIZE;
     unsigned char *header_wire = connection_nonce + CONNECTION_NONCE_SIZE;
+    size_t address_size = write_v2ray_address(plaintext + 38, target);
+    if (!address_size)
+        return false;
 
     /* 请求头依次由认证 ID、加密长度、连接随机数及加密指令组成。 */
     plaintext[0] = 1;
@@ -352,7 +337,7 @@ static bool send_request_header(VmessSession *session, const Settings *settings,
     plaintext[35] = (unsigned char)((padding << 4) | wire_security);
     plaintext[36] = 0;
     plaintext[37] = 1;
-    size_t size = 38 + write_address(plaintext + 38, target);
+    size_t size = 38 + address_size;
     memcpy(plaintext + size, random + 2 * KEY_SIZE + 2, padding);
     size += padding;
     write_uint32(plaintext + size, fnv1a(plaintext, size));
@@ -360,7 +345,7 @@ static bool send_request_header(VmessSession *session, const Settings *settings,
 
     unsigned char length[LENGTH_SIZE];
     write_uint16(length, (uint16_t)size);
-    memcpy(command_input, settings->vmess_uuid, KEY_SIZE);
+    memcpy(command_input, settings->uuid, KEY_SIZE);
     memcpy(command_input + KEY_SIZE, command_salt, sizeof(command_salt) - 1);
     bool success = mbedtls_md5(command_input, sizeof(command_input), command_key) == 0 &&
         create_auth_id(command_key, wire) && random_fill(connection_nonce, CONNECTION_NONCE_SIZE) &&

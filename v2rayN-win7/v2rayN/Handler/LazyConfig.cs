@@ -54,9 +54,15 @@ namespace v2rayN.Handler
                 return selected;
             }
 
-            return eConfigType == EConfigType.VMess && CrayConfig.SupportsVmess(vmessItem)
+            return HasAutomaticCoreSelection(eConfigType) && vmessItem?.configType == eConfigType
+                && CrayConfig.SupportsNode(vmessItem)
                 ? ECoreType.Cray
                 : GetDefaultCoreType(eConfigType);
+        }
+
+        internal static bool HasAutomaticCoreSelection(EConfigType configType)
+        {
+            return configType == EConfigType.VMess || configType == EConfigType.VLESS;
         }
 
         public static ECoreType GetDefaultCoreType(EConfigType configType)
@@ -66,7 +72,7 @@ namespace v2rayN.Handler
 
         public static string[] GetCoreTypeNames(EConfigType configType)
         {
-            return configType == EConfigType.Trojan || configType == EConfigType.VMess
+            return configType == EConfigType.Trojan || HasAutomaticCoreSelection(configType)
                 ? Global.coreTypes.Concat(new[] { nameof(ECoreType.Cray) }).ToArray()
                 : Global.coreTypes.ToArray();
         }

@@ -774,7 +774,8 @@ namespace v2rayN.Handler
             {
                 vmessItem.allowInsecure = config.defAllowInsecure.ToString();
             }
-            if (!Utils.IsNullOrEmpty(vmessItem.network) && !Global.networks.Contains(vmessItem.network))
+            if (vmessItem.configType != EConfigType.VLESS
+                && !Utils.IsNullOrEmpty(vmessItem.network) && !Global.networks.Contains(vmessItem.network))
             {
                 vmessItem.network = Global.DefaultNetwork;
             }
@@ -850,8 +851,10 @@ namespace v2rayN.Handler
         /// <param name="clipboardData"></param>
         /// <param name="subid"></param>
         /// <returns>成功导入的数量</returns>
-        private static int AddBatchServers(ref Config config, string clipboardData, string subid, List<VmessItem> lstOriSub, string groupId)
+        private static int AddBatchServers(ref Config config, string clipboardData, string subid,
+            List<VmessItem> lstOriSub, string groupId, out string error)
         {
+            error = null;
             if (Utils.IsNullOrEmpty(clipboardData))
             {
                 return -1;
@@ -881,9 +884,14 @@ namespace v2rayN.Handler
                     }
                     continue;
                 }
-                VmessItem vmessItem = ShareHandler.ImportFromClipboardConfig(str, out string msg);
+                VmessItem vmessItem = ShareHandler.ImportFromClipboardConfig(str, out string msg,
+                    out bool unsupportedSettings);
                 if (vmessItem == null)
                 {
+                    if (unsupportedSettings)
+                    {
+                        error = msg;
+                    }
                     continue;
                 }
 
@@ -893,6 +901,10 @@ namespace v2rayN.Handler
                     var existItem = lstOriSub?.FirstOrDefault(t => CompareVmessItem(t, vmessItem, true));
                     if (existItem != null)
                     {
+                        if (vmessItem.configType == EConfigType.VLESS && !string.IsNullOrWhiteSpace(vmessItem.fingerprint))
+                        {
+                            existItem.fingerprint = vmessItem.fingerprint;
+                        }
                         vmessItem = existItem;
                     }
                     vmessItem.subid = subid;
@@ -1095,25 +1107,32 @@ namespace v2rayN.Handler
 
         public static int AddBatchServers(ref Config config, string clipboardData, string subid, string groupId)
         {
+            return AddBatchServers(ref config, clipboardData, subid, groupId, out _);
+        }
+
+        public static int AddBatchServers(ref Config config, string clipboardData, string subid,
+            string groupId, out string error)
+        {
             List<VmessItem> lstOriSub = null;
             if (!Utils.IsNullOrEmpty(subid))
             {
                 lstOriSub = config.vmess.Where(it => it.subid == subid).ToList();
             }
 
-            int counter = AddBatchServers(ref config, clipboardData, subid, lstOriSub, groupId);
-            if (counter < 1)
+            int counter = AddBatchServers(ref config, clipboardData, subid, lstOriSub, groupId, out error);
+            if (counter < 1 && error == null)
             {
-                counter = AddBatchServers(ref config, Utils.Base64Decode(clipboardData), subid, lstOriSub, groupId);
+                counter = AddBatchServers(ref config, Utils.Base64Decode(clipboardData), subid, lstOriSub,
+                    groupId, out error);
             }
 
-            if (counter < 1)
+            if (counter < 1 && error == null)
             {
                 counter = AddBatchServers4SsSIP008(ref config, clipboardData, subid, lstOriSub, groupId);
             }
 
             //maybe other sub 
-            if (counter < 1)
+            if (counter < 1 && error == null)
             {
                 counter = AddBatchServers4Custom(ref config, clipboardData, subid, lstOriSub, groupId);
             }

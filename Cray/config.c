@@ -277,12 +277,14 @@ static bool json_protocol(Json *json, Settings *settings)
         settings->protocol = OUTBOUND_TROJAN;
     else if (!strcmp(value, "vmess"))
         settings->protocol = OUTBOUND_VMESS;
+    else if (!strcmp(value, "vless"))
+        settings->protocol = OUTBOUND_VLESS;
     else
         return false;
     return true;
 }
 
-static bool json_vmess_uuid(Json *json, unsigned char uuid[16])
+static bool json_uuid(Json *json, unsigned char uuid[16])
 {
     char text[37];
     size_t position = 0;
@@ -328,11 +330,12 @@ static bool json_vmess_security(Json *json, VmessSecurity *security)
 static bool parse_settings(Settings *settings, Json *json)
 {
     enum { SERVER, SERVER_PORT, PASSWORD, PASSWORD_HASH, SNI, VERIFY,
-           SOCKS, HTTP, ALPN, CA, PROTOCOL, UUID, ALTER_ID, SECURITY, TLS, NUM_FIELDS };
+           SOCKS, HTTP, ALPN, CA, PROTOCOL, UUID, ALTER_ID, SECURITY, TLS, ENCRYPTION,
+           NUM_FIELDS };
     static const char *const fields[] = {
         "server", "server_port", "password", "password_sha224", "sni", "verify_tls",
         "socks_port", "http_port", "alpn", "ca_file", "protocol", "uuid", "alter_id",
-        "security", "tls"
+        "security", "tls", "encryption"
     };
     unsigned int present = 0;
     if (!take(json, '{'))
@@ -385,7 +388,7 @@ static bool parse_settings(Settings *settings, Json *json)
             value = json_protocol(json, settings);
             break;
         case UUID:
-            value = json_vmess_uuid(json, settings->vmess_uuid);
+            value = json_uuid(json, settings->uuid);
             break;
         case ALTER_ID:
             /* VMess AEAD 使用主 UUID，兼容配置中的 alter_id 固定为 0。 */
@@ -397,6 +400,13 @@ static bool parse_settings(Settings *settings, Json *json)
         case TLS:
             value = json_bool(json, &settings->use_tls);
             break;
+        case ENCRYPTION: {
+            /* 标准 VLESS 使用 none，传输层可单独启用 TLS。 */
+            char encryption[sizeof("none")];
+            value = json_string(json, encryption, sizeof(encryption), NULL) &&
+                !strcmp(encryption, "none");
+            break;
+        }
         }
         if (!value) {
             fprintf(stderr, "Cray: invalid config setting %s\n", fields[field]);
@@ -412,17 +422,20 @@ static bool parse_settings(Settings *settings, Json *json)
         return false;
 
     const unsigned int password_fields = (1u << PASSWORD) | (1u << PASSWORD_HASH);
+    const unsigned int vmess_fields = (1u << ALTER_ID) | (1u << SECURITY);
     if (!(present & (1u << TLS)))
         settings->use_tls = settings->protocol == OUTBOUND_TROJAN;
-    if (settings->protocol == OUTBOUND_VMESS) {
-        if (!(present & (1u << UUID)) || (present & password_fields)) {
-            fprintf(stderr, "Cray: use only uuid to authenticate VMess\n");
-            return false;
-        }
-    } else {
-        const unsigned int vmess_fields = (1u << UUID) | (1u << ALTER_ID) | (1u << SECURITY);
-        if (present & vmess_fields) {
-            fprintf(stderr, "Cray: uuid, alter_id and security require protocol vmess\n");
+    if ((present & vmess_fields) && settings->protocol != OUTBOUND_VMESS) {
+        fprintf(stderr, "Cray: alter_id and security require protocol vmess\n");
+        return false;
+    }
+    if ((present & (1u << ENCRYPTION)) && settings->protocol != OUTBOUND_VLESS) {
+        fprintf(stderr, "Cray: encryption requires protocol vless\n");
+        return false;
+    }
+    if (settings->protocol == OUTBOUND_TROJAN) {
+        if (present & (1u << UUID)) {
+            fprintf(stderr, "Cray: uuid requires protocol vmess or vless\n");
             return false;
         }
         if (!settings->use_tls || !settings->password_hash[0] ||
@@ -430,6 +443,10 @@ static bool parse_settings(Settings *settings, Json *json)
             fprintf(stderr, "Cray: Trojan requires TLS and exactly one password field\n");
             return false;
         }
+    } else if (!(present & (1u << UUID)) || (present & password_fields)) {
+        fprintf(stderr, "Cray: use only uuid to authenticate %s\n",
+                settings->protocol == OUTBOUND_VMESS ? "VMess" : "VLESS");
+        return false;
     }
     return true;
 }
