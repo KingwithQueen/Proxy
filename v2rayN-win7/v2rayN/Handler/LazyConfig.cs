@@ -43,6 +43,10 @@ namespace v2rayN.Handler
 
         internal static ECoreType ResolveCoreType(Config config, VmessItem vmessItem, EConfigType eConfigType)
         {
+            if (eConfigType == EConfigType.AnyTLS)
+            {
+                return ECoreType.Cray;
+            }
             if (vmessItem != null && vmessItem.coreType != null)
             {
                 return (ECoreType)vmessItem.coreType;
@@ -67,11 +71,17 @@ namespace v2rayN.Handler
 
         public static ECoreType GetDefaultCoreType(EConfigType configType)
         {
-            return configType == EConfigType.Trojan ? ECoreType.Cray : ECoreType.Xray;
+            return configType == EConfigType.Trojan || configType == EConfigType.AnyTLS
+                ? ECoreType.Cray
+                : ECoreType.Xray;
         }
 
         public static string[] GetCoreTypeNames(EConfigType configType)
         {
+            if (configType == EConfigType.AnyTLS)
+            {
+                return new[] { nameof(ECoreType.Cray) };
+            }
             return configType == EConfigType.Trojan || HasAutomaticCoreSelection(configType)
                 ? Global.coreTypes.Concat(new[] { nameof(ECoreType.Cray) }).ToArray()
                 : Global.coreTypes.ToArray();

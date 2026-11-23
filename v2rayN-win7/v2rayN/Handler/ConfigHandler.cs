@@ -767,6 +767,26 @@ namespace v2rayN.Handler
             return list.Count;
         }
 
+        public static int AddAnyTlsServer(ref Config config, VmessItem vmessItem, bool toFile = true)
+        {
+            vmessItem.configType = EConfigType.AnyTLS;
+            vmessItem.address = vmessItem.address.TrimEx();
+            if (!CrayConfig.SupportsNode(vmessItem))
+            {
+                return -1;
+            }
+
+            vmessItem.network = Global.DefaultNetwork;
+            vmessItem.headerType = Global.None;
+            vmessItem.streamSecurity = Global.StreamSecurity;
+            AddServerCommon(ref config, vmessItem);
+            if (toFile)
+            {
+                ToJsonFile(config);
+            }
+            return 0;
+        }
+
         public static int AddServerCommon(ref Config config, VmessItem vmessItem)
         {
             vmessItem.configVersion = 2;
@@ -905,6 +925,10 @@ namespace v2rayN.Handler
                         {
                             existItem.fingerprint = vmessItem.fingerprint;
                         }
+                        if (vmessItem.configType == EConfigType.AnyTLS && !string.IsNullOrEmpty(vmessItem.allowInsecure))
+                        {
+                            existItem.allowInsecure = vmessItem.allowInsecure;
+                        }
                         vmessItem = existItem;
                     }
                     vmessItem.subid = subid;
@@ -944,6 +968,13 @@ namespace v2rayN.Handler
                 else if (vmessItem.configType == EConfigType.VLESS)
                 {
                     if (AddVlessServer(ref config, vmessItem, false) == 0)
+                    {
+                        countServers++;
+                    }
+                }
+                else if (vmessItem.configType == EConfigType.AnyTLS)
+                {
+                    if (AddAnyTlsServer(ref config, vmessItem, false) == 0)
                     {
                         countServers++;
                     }

@@ -173,6 +173,8 @@ namespace v2rayN
         /// trojan
         /// </summary>
         public const string trojanProtocolLite = "trojan";
+        public const string anytlsProtocolLite = "anytls";
+        public const string anytlsProtocol = anytlsProtocolLite + "://";
 
         /// <summary>
         /// email

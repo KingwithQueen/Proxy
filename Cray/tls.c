@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core.h"
+#include "anytls.h"
 #include "vless.h"
 #include "vmess.h"
 
@@ -17,9 +18,19 @@
 #include "psa/crypto.h"
 
 typedef struct {
-    unsigned char data[RELAY_BUFFER_SIZE + VMESS_WRITE_OVERHEAD];
+    unsigned char data[RELAY_BUFFER_SIZE];
     size_t offset, end;
 } RelayBuffer;
+
+typedef struct {
+    unsigned char data[RELAY_BUFFER_SIZE + ANYTLS_WRITE_OVERHEAD];
+    size_t offset, end;
+    size_t record_ends[ANYTLS_MAX_RECORDS];
+    unsigned int record, record_count;
+} UploadBuffer;
+
+_Static_assert((int)ANYTLS_WRITE_OVERHEAD >= (int)VMESS_WRITE_OVERHEAD,
+               "upload buffer must also fit encoded VMess data");
 
 typedef struct {
     mbedtls_ssl_context context;
@@ -28,7 +39,8 @@ typedef struct {
     bool use_tls;
     VmessSession *vmess;
     VlessSession vless;
-    RelayBuffer *output;
+    AnyTlsSession *anytls;
+    UploadBuffer *output;
     int read_status;
 } UpstreamSession;
 
@@ -348,6 +360,8 @@ static void stream_close(UpstreamSession *session)
 {
     if (session->vmess)
         vmess_close(session->vmess);
+    if (session->anytls)
+        anytls_close(session->anytls);
     mbedtls_ssl_free(&session->context);
     if (session->socket != INVALID_SOCKET)
         closesocket(session->socket);
@@ -378,12 +392,18 @@ static int stream_finish(UpstreamSession *session)
 static bool send_upstream(void *opaque, const void *data, size_t size)
 {
     UpstreamSession *session = opaque;
-    RelayBuffer *output = session->output;
+    UploadBuffer *output = session->output;
+    if (!size)
+        return true;
     if (output) {
-        if (size > sizeof(output->data) - output->end)
+        if (size > sizeof(output->data) - output->end ||
+            (session->anytls && output->record_count == ANYTLS_MAX_RECORDS))
             return false;
         memcpy(output->data + output->end, data, size);
         output->end += size;
+        /* AnyTLS 的每次写入对应单独的 TLS 应用数据记录。 */
+        if (session->anytls)
+            output->record_ends[output->record_count++] = output->end;
         return true;
     }
 
@@ -406,27 +426,16 @@ static bool send_upstream(void *opaque, const void *data, size_t size)
 static bool send_trojan_request(UpstreamSession *session, const Settings *settings,
                                 const Destination *target)
 {
-    unsigned char request[AUTH_HEX_SIZE + 2 + 1 + 1 + 1 + MAX_HOST + 2 + 2];
+    unsigned char request[AUTH_HEX_SIZE + 2 + 1 + SOCKS_ADDRESS_SIZE + 2];
+    size_t address_size = write_socks_address(request + AUTH_HEX_SIZE + 3, target);
+    if (!address_size)
+        return false;
     memcpy(request, settings->password_hash, AUTH_HEX_SIZE);
     size_t length = AUTH_HEX_SIZE;
     request[length++] = '\r';
     request[length++] = '\n';
     request[length++] = 1;
-    if (InetPtonA(AF_INET, target->host, request + length + 1) == 1) {
-        request[length++] = 1;
-        length += 4;
-    } else if (InetPtonA(AF_INET6, target->host, request + length + 1) == 1) {
-        request[length++] = 4;
-        length += 16;
-    } else {
-        size_t host_length = strlen(target->host);
-        request[length++] = 3;
-        request[length++] = (unsigned char)host_length;
-        memcpy(request + length, target->host, host_length);
-        length += host_length;
-    }
-    request[length++] = (unsigned char)(target->port >> 8);
-    request[length++] = (unsigned char)(target->port & 255);
+    length += address_size;
     request[length++] = '\r';
     request[length++] = '\n';
     bool success = send_upstream(session, request, length);
@@ -469,6 +478,33 @@ static int recv_upstream(void *opaque, void *data, size_t size)
     return result < 0 ? -1 : result;
 }
 
+static bool await_anytls_open(UpstreamSession *session)
+{
+    enum { ANYTLS_LEGACY_WAIT = 500 };
+    ULONGLONG started = GetTickCount64();
+    for (;;) {
+        int status = anytls_await_open(session->anytls, recv_upstream);
+        if (status == ANYTLS_NEEDS_REPLY) {
+            if (!anytls_reply(session->anytls))
+                return false;
+        } else if (status == ANYTLS_WANT_IO) {
+            /* 旧版服务端不发送开流确认，短暂等待后即可开始转发。 */
+            bool requires_ack = anytls_requires_ack(session->anytls);
+            ULONGLONG deadline = started + (requires_ack ? HANDSHAKE_TIMEOUT : ANYTLS_LEGACY_WAIT);
+            Readiness state = want(session->read_status);
+            if (state == STREAM_READY)
+                return false;
+            int ready_count = wait_socket(session->socket, state == STREAM_READ_READY, deadline);
+            if (ready_count <= 0)
+                return ready_count == 0 && !requires_ack && state == STREAM_READ_READY;
+        } else {
+            return status > 0;
+        }
+        if (GetTickCount64() - started >= HANDSHAKE_TIMEOUT)
+            return false;
+    }
+}
+
 static int read_proxy_data(UpstreamSession *session, unsigned char *data, size_t size)
 {
     int result;
@@ -479,6 +515,9 @@ static int read_proxy_data(UpstreamSession *session, unsigned char *data, size_t
     case OUTBOUND_VLESS:
         result = vless_read(&session->vless, session, data, size, recv_upstream);
         break;
+    case OUTBOUND_ANYTLS:
+        result = anytls_read(session->anytls, data, size, recv_upstream);
+        break;
     default:
         return stream_read(session, data, size);
     }
@@ -487,19 +526,28 @@ static int read_proxy_data(UpstreamSession *session, unsigned char *data, size_t
 
 static bool queue_upload(UpstreamSession *session, const unsigned char *data, size_t size)
 {
+    if (session->anytls)
+        return anytls_send(session->anytls, data, size);
     return session->vmess ? vmess_send(session->vmess, data, size)
                           : send_upstream(session, data, size);
 }
 
-static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
-                  bool vmess_framed)
+static bool queue_finish(UpstreamSession *session)
 {
-    RelayBuffer to_local = { 0 }, to_upstream = { 0 };
+    return session->anytls ? anytls_finish(session->anytls) : vmess_finish(session->vmess);
+}
+
+static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
+                  bool framed_finish)
+{
+    RelayBuffer to_local = { 0 };
+    UploadBuffer to_upstream = { 0 };
     unsigned char from_local[RELAY_BUFFER_SIZE];
     size_t initial_offset = 0;
     SOCKET upstream = session->socket;
     Readiness read_retry = STREAM_READY, write_retry = STREAM_READY;
     bool local_eof = false, upstream_eof = false, close_sent = false;
+    bool heartbeat_pending = false;
     ULONGLONG deadline = GetTickCount64() + IDLE_TIMEOUT;
     session->output = &to_upstream;
 
@@ -509,18 +557,25 @@ static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
         FD_ZERO(&writes);
 
         bool upload_pending = to_upstream.offset < to_upstream.end;
+        if (session->anytls && close_sent && !upload_pending)
+            upstream_eof = true;
         if (!upstream_eof && !upload_pending) {
             to_upstream.offset = to_upstream.end = 0;
-            if (initial_offset < request->initial_size) {
+            to_upstream.record = to_upstream.record_count = 0;
+            if (heartbeat_pending) {
+                if (!anytls_reply(session->anytls))
+                    break;
+                heartbeat_pending = false;
+            } else if (initial_offset < request->initial_size) {
                 size_t size = request->initial_size - initial_offset;
                 if (size > RELAY_BUFFER_SIZE)
                     size = RELAY_BUFFER_SIZE;
                 if (!queue_upload(session, request->initial + initial_offset, size))
                     break;
                 initial_offset += size;
-            } else if (local_eof && vmess_framed && !close_sent) {
-                /* VMess 分帧流以空帧结束写入，外层连接仍可接收响应。 */
-                if (!vmess_finish(session->vmess))
+            } else if (local_eof && framed_finish && !close_sent) {
+                /* VMess 使用空帧结束发送，AnyTLS 使用 FIN 关闭逻辑流。 */
+                if (!queue_finish(session))
                     break;
                 close_sent = true;
             }
@@ -533,7 +588,7 @@ static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
             FD_SET(local, &writes);
 
         /* TLS 写入须使用原缓冲区重试，再继续读取。 */
-        bool reading = !upstream_eof && to_local.offset == to_local.end &&
+        bool reading = !upstream_eof && !heartbeat_pending && to_local.offset == to_local.end &&
                        (!session->use_tls || write_retry == STREAM_READY);
         bool writing = !upstream_eof && (upload_pending || send_close) &&
                        read_retry != STREAM_WRITE_READY;
@@ -586,15 +641,19 @@ static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
         }
 
         if (writing && ready(upstream, write_when, &reads, &writes)) {
+            size_t record_end = to_upstream.record < to_upstream.record_count ?
+                to_upstream.record_ends[to_upstream.record] : to_upstream.end;
             int sent = send_close ? stream_finish(session) :
                 stream_write(session, to_upstream.data + to_upstream.offset,
-                             to_upstream.end - to_upstream.offset);
+                             record_end - to_upstream.offset);
             write_retry = want(sent);
             if (send_close && sent == 0) {
                 close_sent = true;
                 progress = true;
             } else if (sent > 0) {
                 to_upstream.offset += (size_t)sent;
+                if (to_upstream.record < to_upstream.record_count && to_upstream.offset == record_end)
+                    ++to_upstream.record;
                 progress = true;
             } else if (write_retry == STREAM_READY) {
                 break;
@@ -607,6 +666,9 @@ static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
             if (received > 0) {
                 to_local.offset = 0;
                 to_local.end = (size_t)received;
+                progress = true;
+            } else if (received == ANYTLS_NEEDS_REPLY && session->anytls) {
+                heartbeat_pending = true;
                 progress = true;
             } else if (read_retry == STREAM_READY) {
                 upstream_eof = true;
@@ -634,6 +696,10 @@ void serve_upstream(SOCKET local, LocalRequest *request, const TlsConfig *tls,
             connected = vless_open(&session.vless, settings, &request->target, &session,
                                    send_upstream);
             break;
+        case OUTBOUND_ANYTLS:
+            session.anytls = anytls_open(settings, &request->target, &session, send_upstream);
+            connected = session.anytls && await_anytls_open(&session);
+            break;
         case OUTBOUND_TROJAN:
             connected = send_trojan_request(&session, settings, &request->target);
             break;
@@ -641,6 +707,6 @@ void serve_upstream(SOCKET local, LocalRequest *request, const TlsConfig *tls,
     }
     if (reply_local(local, request->protocol, connected) && connected)
         relay(local, &session, request,
-              session.vmess && settings->vmess_security != VMESS_SECURITY_ZERO);
+              session.anytls || (session.vmess && settings->vmess_security != VMESS_SECURITY_ZERO));
     stream_close(&session);
 }

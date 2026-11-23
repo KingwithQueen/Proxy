@@ -113,7 +113,7 @@ namespace v2rayN.Forms
 
             foreach (EConfigType it in Enum.GetValues(typeof(EConfigType)))
             {
-                if (config.coreTypeItem.FindIndex(t => t.configType == it) >= 0)
+                if (it == EConfigType.AnyTLS || config.coreTypeItem.FindIndex(t => t.configType == it) >= 0)
                 {
                     continue;
                 }

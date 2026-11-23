@@ -1003,6 +1003,12 @@ namespace v2rayN.Forms
             ShowForm();
         }
 
+        private void menuAddAnyTlsServer_Click(object sender, EventArgs e)
+        {
+            ShowServerForm(EConfigType.AnyTLS, -1);
+            ShowForm();
+        }
+
         private void menuAddServers_Click(object sender, EventArgs e)
         {
             string clipboardData = Utils.GetClipboardData();

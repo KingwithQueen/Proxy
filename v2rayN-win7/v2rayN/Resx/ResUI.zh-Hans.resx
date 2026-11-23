@@ -479,7 +479,7 @@
     <value>正常使用此版本需要.NET Framework 4.8，请更新后重启</value>
   </data>
   <data name="CrayTransport" xml:space="preserve">
-    <value>Cray 支持 Trojan（TCP + TLS）、VMess AEAD 和 VLESS（TCP，可选 TLS）。请使用默认的 TCP 包头、流控和 TLS 指纹，或为该节点选择其他已安装的内核。</value>
+    <value>Cray 支持 Trojan 和 AnyTLS（TCP + TLS），以及 VMess AEAD 和 VLESS（TCP，可选 TLS）。请使用默认的 TCP 包头、流控和 TLS 指纹。</value>
   </data>
   <data name="CrayVmessSettings" xml:space="preserve">
     <value>Cray 要求 VMess 节点使用标准 UUID，alterId 设为 0，加密方式可选 auto、aes-128-gcm、chacha20-poly1305、none 或 zero。</value>

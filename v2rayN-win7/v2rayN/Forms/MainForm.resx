@@ -158,6 +158,12 @@
   <data name="menuAddTrojanServer.Text" xml:space="preserve">
     <value>Add [Trojan] server</value>
   </data>
+  <data name="menuAddAnyTlsServer.Size" type="System.Drawing.Size, System.Drawing">
+    <value>423, 24</value>
+  </data>
+  <data name="menuAddAnyTlsServer.Text" xml:space="preserve">
+    <value>Add [AnyTLS] server</value>
+  </data>
   <data name="menuAddCustomServer.Size" type="System.Drawing.Size, System.Drawing">
     <value>423, 24</value>
   </data>

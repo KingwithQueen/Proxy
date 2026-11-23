@@ -255,8 +255,10 @@ static bool json_password(Json *json, Settings *settings, bool hashed)
         }
         return true;
     }
+    /* 协议字段可在密码字段之后出现，先计算两种摘要再清除明文。 */
     if (json_string(json, password, sizeof(password), &used) && used &&
-        mbedtls_sha256((const unsigned char *)password, used, digest, 1) == 0) {
+        mbedtls_sha256((const unsigned char *)password, used, digest, 1) == 0 &&
+        mbedtls_sha256((const unsigned char *)password, used, settings->anytls_password_hash, 0) == 0) {
         for (size_t i = 0; i < AUTH_HEX_SIZE / 2; ++i) {
             settings->password_hash[i * 2] = hex[digest[i] >> 4];
             settings->password_hash[i * 2 + 1] = hex[digest[i] & 15];
@@ -279,6 +281,8 @@ static bool json_protocol(Json *json, Settings *settings)
         settings->protocol = OUTBOUND_VMESS;
     else if (!strcmp(value, "vless"))
         settings->protocol = OUTBOUND_VLESS;
+    else if (!strcmp(value, "anytls"))
+        settings->protocol = OUTBOUND_ANYTLS;
     else
         return false;
     return true;
@@ -423,8 +427,10 @@ static bool parse_settings(Settings *settings, Json *json)
 
     const unsigned int password_fields = (1u << PASSWORD) | (1u << PASSWORD_HASH);
     const unsigned int vmess_fields = (1u << ALTER_ID) | (1u << SECURITY);
+    bool anytls = settings->protocol == OUTBOUND_ANYTLS;
+    bool password_protocol = settings->protocol == OUTBOUND_TROJAN || anytls;
     if (!(present & (1u << TLS)))
-        settings->use_tls = settings->protocol == OUTBOUND_TROJAN;
+        settings->use_tls = password_protocol;
     if ((present & vmess_fields) && settings->protocol != OUTBOUND_VMESS) {
         fprintf(stderr, "Cray: alter_id and security require protocol vmess\n");
         return false;
@@ -433,13 +439,19 @@ static bool parse_settings(Settings *settings, Json *json)
         fprintf(stderr, "Cray: encryption requires protocol vless\n");
         return false;
     }
-    if (settings->protocol == OUTBOUND_TROJAN) {
+    if (password_protocol) {
         if (present & (1u << UUID)) {
             fprintf(stderr, "Cray: uuid requires protocol vmess or vless\n");
             return false;
         }
-        if (!settings->use_tls || !settings->password_hash[0] ||
-            (present & password_fields) == password_fields) {
+        if (anytls) {
+            if (!settings->use_tls || (present & password_fields) != (1u << PASSWORD)) {
+                fprintf(stderr, "Cray: AnyTLS requires TLS and the password field\n");
+                return false;
+            }
+            SecureZeroMemory(settings->password_hash, sizeof(settings->password_hash));
+        } else if (!settings->use_tls || !settings->password_hash[0] ||
+                   (present & password_fields) == password_fields) {
             fprintf(stderr, "Cray: Trojan requires TLS and exactly one password field\n");
             return false;
         }
@@ -448,6 +460,8 @@ static bool parse_settings(Settings *settings, Json *json)
                 settings->protocol == OUTBOUND_VMESS ? "VMess" : "VLESS");
         return false;
     }
+    if (!anytls)
+        SecureZeroMemory(settings->anytls_password_hash, sizeof(settings->anytls_password_hash));
     return true;
 }
 

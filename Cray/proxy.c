@@ -31,6 +31,30 @@ size_t write_v2ray_address(unsigned char output[V2RAY_ADDRESS_SIZE], const Desti
     return 4 + length;
 }
 
+/* Trojan 和 AnyTLS 使用 SOCKS5 地址格式，端口在地址之后。 */
+size_t write_socks_address(unsigned char output[SOCKS_ADDRESS_SIZE], const Destination *target)
+{
+    size_t position;
+    if (InetPtonA(AF_INET, target->host, output + 1) == 1) {
+        output[0] = 1;
+        position = 5;
+    } else if (InetPtonA(AF_INET6, target->host, output + 1) == 1) {
+        output[0] = 4;
+        position = 17;
+    } else {
+        size_t length = strlen(target->host);
+        if (!length || length > MAX_HOST)
+            return 0;
+        output[0] = 3;
+        output[1] = (unsigned char)length;
+        memcpy(output + 2, target->host, length);
+        position = 2 + length;
+    }
+    output[position++] = (unsigned char)(target->port >> 8);
+    output[position++] = (unsigned char)target->port;
+    return position;
+}
+
 bool set_nonblocking(SOCKET socket)
 {
     u_long mode = 1;

@@ -9,6 +9,7 @@ namespace v2rayN.Forms
     public partial class ServerTransportControl : UserControl
     {
         public bool AllowXtls { get; set; }
+        public bool UseTcpTlsOnly { get; set; }
         private VmessItem vmessItem;
 
         public ServerTransportControl()
@@ -22,6 +23,15 @@ namespace v2rayN.Forms
         private void Init(VmessItem item)
         {
             vmessItem = item;
+
+            if (UseTcpTlsOnly)
+            {
+                cmbNetwork.Items.Add(Global.DefaultNetwork);
+                cmbStreamSecurity.Items.Add(Global.StreamSecurity);
+                cmbNetwork.Enabled = cmbStreamSecurity.Enabled = cmbHeaderType.Enabled = false;
+                cmbFingerprint.Enabled = txtRequestHost.Enabled = txtPath.Enabled = false;
+                return;
+            }
 
             cmbNetwork.Items.AddRange(Global.networks.ToArray());
 
@@ -77,7 +87,7 @@ namespace v2rayN.Forms
             cmbNetwork.Text = Global.DefaultNetwork;
             cmbHeaderType.Text = Global.None;
             txtRequestHost.Text = "";
-            cmbStreamSecurity.Text = "";
+            cmbStreamSecurity.Text = UseTcpTlsOnly ? Global.StreamSecurity : "";
             cmbAllowInsecure.Text = "";
             txtPath.Text = "";
             txtSNI.Text = ""; 

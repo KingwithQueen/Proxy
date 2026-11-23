@@ -22,7 +22,7 @@ add_subdirectory("${MBEDTLS_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/mbedtls")
 target_include_directories(mbedcrypto PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>")
 target_compile_definitions(mbedcrypto PUBLIC MBEDTLS_USER_CONFIG_FILE="mbedtls_user_config.h")
 
-add_executable(Cray main.c config.c proxy.c tls.c vmess.c vless.c)
+add_executable(Cray main.c config.c proxy.c tls.c vmess.c vless.c anytls.c)
 target_compile_features(Cray PRIVATE c_std_11)
 target_link_libraries(Cray PRIVATE mbedtls mbedx509 mbedcrypto ws2_32 crypt32 bcrypt)
 if(MSVC)

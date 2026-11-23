@@ -479,7 +479,7 @@
     <value>Normal use of this version requires .NET Framework 4.8</value>
   </data>
   <data name="CrayTransport" xml:space="preserve">
-    <value>Cray supports Trojan over TCP with TLS and VMess AEAD or VLESS over TCP with optional TLS. Use TCP with the default header, flow, and TLS fingerprint, or select another installed core for this node.</value>
+    <value>Cray supports Trojan and AnyTLS over TCP with TLS and VMess AEAD or VLESS over TCP with optional TLS. Use TCP with the default header, flow, and TLS fingerprint.</value>
   </data>
   <data name="CrayVmessSettings" xml:space="preserve">
     <value>Cray requires a VMess UUID, alterId set to 0, and encryption set to auto, aes-128-gcm, chacha20-poly1305, none, or zero.</value>

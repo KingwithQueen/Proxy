@@ -19,15 +19,17 @@ namespace v2rayN.Handler
         {
             bool vmess = node?.configType == EConfigType.VMess;
             bool vless = node?.configType == EConfigType.VLESS;
+            bool anytls = node?.configType == EConfigType.AnyTLS;
             bool usesUuid = vmess || vless;
-            if ((!usesUuid && node?.configType != EConfigType.Trojan)
+            if ((!usesUuid && !anytls && node?.configType != EConfigType.Trojan)
                 || string.IsNullOrWhiteSpace(node.address) || string.IsNullOrEmpty(node.id)
                 || node.port < 1 || node.port > 65535)
             {
                 return ResUI.CheckServerSettings;
             }
 
-            if ((!EmptyOrEquals(node.network, Global.DefaultNetwork) && !(usesUuid && EqualsSetting(node.network, "raw")))
+            if ((!EmptyOrEquals(node.network, Global.DefaultNetwork)
+                    && !((usesUuid || anytls) && EqualsSetting(node.network, "raw")))
                 || !EmptyOrEquals(node.headerType, Global.None)
                 || (!EmptyOrEquals(node.streamSecurity, Global.StreamSecurity)
                     && !(usesUuid && EqualsSetting(node.streamSecurity, Global.None)))
@@ -72,6 +74,7 @@ namespace v2rayN.Handler
 
             bool vmess = node.configType == EConfigType.VMess;
             bool vless = node.configType == EConfigType.VLESS;
+            bool anytls = node.configType == EConfigType.AnyTLS;
             bool usesUuid = vmess || vless;
             bool useTls = !usesUuid || EqualsSetting(node.streamSecurity, Global.StreamSecurity);
             string sni = null;
@@ -91,7 +94,8 @@ namespace v2rayN.Handler
 
             return JsonConvert.SerializeObject(new
             {
-                protocol = vmess ? Global.vmessProtocolLite : vless ? Global.vlessProtocolLite : null,
+                protocol = vmess ? Global.vmessProtocolLite
+                    : vless ? Global.vlessProtocolLite : anytls ? Global.anytlsProtocolLite : null,
                 server = NormalizeHost(node.address),
                 server_port = node.port,
                 password = usesUuid ? null : node.id,
@@ -99,7 +103,7 @@ namespace v2rayN.Handler
                 alter_id = vmess ? (int?)node.alterId : null,
                 security = vmess ? GetVmessSecurity(node) : null,
                 encryption = vless ? Global.None : null,
-                tls = usesUuid ? (bool?)useTls : null,
+                tls = usesUuid || anytls ? (bool?)useTls : null,
                 sni = string.IsNullOrEmpty(sni) ? null : NormalizeHost(sni),
                 verify_tls = verifyTls,
                 socks_port = socksPort,

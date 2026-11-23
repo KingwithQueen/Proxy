@@ -38,6 +38,7 @@
             this.menuAddShadowsocksServer = new System.Windows.Forms.ToolStripMenuItem();
             this.menuAddSocksServer = new System.Windows.Forms.ToolStripMenuItem();
             this.menuAddTrojanServer = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuAddAnyTlsServer = new System.Windows.Forms.ToolStripMenuItem();
             this.menuAddCustomServer = new System.Windows.Forms.ToolStripMenuItem();
             this.menuAddServers = new System.Windows.Forms.ToolStripMenuItem();
             this.menuScanScreen = new System.Windows.Forms.ToolStripMenuItem();
@@ -186,6 +187,7 @@
             this.menuAddShadowsocksServer,
             this.menuAddSocksServer,
             this.menuAddTrojanServer,
+            this.menuAddAnyTlsServer,
             this.menuAddCustomServer,
             this.menuAddServers,
             this.menuScanScreen,
@@ -246,6 +248,9 @@
             resources.ApplyResources(this.menuAddTrojanServer, "menuAddTrojanServer");
             this.menuAddTrojanServer.Click += new System.EventHandler(this.menuAddTrojanServer_Click);
             // 
+            this.menuAddAnyTlsServer.Name = "menuAddAnyTlsServer";
+            resources.ApplyResources(this.menuAddAnyTlsServer, "menuAddAnyTlsServer");
+            this.menuAddAnyTlsServer.Click += new System.EventHandler(this.menuAddAnyTlsServer_Click);
             // menuAddCustomServer
             // 
             this.menuAddCustomServer.Name = "menuAddCustomServer";
@@ -955,6 +960,7 @@
         private System.Windows.Forms.ToolStripButton tsbQRCodeSwitch;
         private System.Windows.Forms.ToolStripMenuItem menuAddVlessServer;
         private System.Windows.Forms.ToolStripMenuItem menuAddTrojanServer;
+        private System.Windows.Forms.ToolStripMenuItem menuAddAnyTlsServer;
         private System.Windows.Forms.ToolStripDropDownButton tsbSetting;
         private System.Windows.Forms.ToolStripMenuItem tsbOptionSetting;
         private System.Windows.Forms.ToolStripMenuItem tsbRoutingSetting;

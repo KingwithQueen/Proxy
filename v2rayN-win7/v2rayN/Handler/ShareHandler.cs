@@ -43,6 +43,9 @@ namespace v2rayN.Handler
                     case EConfigType.Trojan:
                         url = ShareTrojan(item);
                         break;
+                    case EConfigType.AnyTLS:
+                        url = ShareAnyTls(item);
+                        break;
                     case EConfigType.VLESS:
                         url = ShareVLESS(item);
                         break;
@@ -156,6 +159,27 @@ namespace v2rayN.Handler
             item.port);
             url = $"{Global.trojanProtocol}{url}{query}{remark}";
             return url;
+        }
+
+        private static string ShareAnyTls(VmessItem item)
+        {
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(item.sni))
+            {
+                query.Add("sni=" + Uri.EscapeDataString(item.sni));
+            }
+            if (bool.TryParse(item.allowInsecure, out bool insecure))
+            {
+                query.Add(insecure ? "insecure=1" : "insecure=0");
+            }
+            else if (item.allowInsecure == "1" || item.allowInsecure == "0")
+            {
+                query.Add("insecure=" + item.allowInsecure);
+            }
+            string parameters = query.Count == 0 ? string.Empty : "?" + string.Join("&", query);
+            string label = string.IsNullOrEmpty(item.remarks)
+                ? string.Empty : "#" + Uri.EscapeDataString(item.remarks);
+            return $"{Global.anytlsProtocol}{Uri.EscapeDataString(item.id)}@{GetIpv6(item.address.Trim('[', ']'))}:{item.port}/{parameters}{label}";
         }
 
         private static string ShareVLESS(VmessItem item)
@@ -362,6 +386,14 @@ namespace v2rayN.Handler
                     msg = ResUI.ConfigurationFormatIncorrect;
 
                     vmessItem = ResolveTrojan(result);
+                }
+                else if (result.StartsWith(Global.anytlsProtocol, StringComparison.OrdinalIgnoreCase))
+                {
+                    vmessItem = ResolveAnyTls(result);
+                    if (vmessItem == null)
+                    {
+                        msg = ResUI.ConfigurationFormatIncorrect;
+                    }
                 }
                 else if (result.StartsWith(Global.vlessProtocol))
                 {
@@ -771,6 +803,40 @@ namespace v2rayN.Handler
 
             return item;
         }
+        private static VmessItem ResolveAnyTls(string result)
+        {
+            // 借用 HTTPS 的默认端口规则，以区分省略的端口和显式填写的端口 0。
+            var uri = new Uri(Uri.UriSchemeHttps + result.Substring(Global.anytlsProtocolLite.Length));
+            int port = uri.Port;
+            string password = Uri.UnescapeDataString(uri.UserInfo);
+            if (uri.HostNameType == UriHostNameType.Unknown || port < 1 || port > 65535
+                || string.IsNullOrEmpty(password) || (uri.AbsolutePath != "" && uri.AbsolutePath != "/"))
+            {
+                return null;
+            }
+
+            var query = HttpUtility.ParseQueryString(uri.Query);
+            string insecure = query["insecure"];
+            if (insecure != null && insecure != "0" && insecure != "1")
+            {
+                return null;
+            }
+
+            return new VmessItem
+            {
+                configType = EConfigType.AnyTLS,
+                address = uri.IdnHost,
+                port = port,
+                id = password,
+                remarks = uri.GetComponents(UriComponents.Fragment, UriFormat.Unescaped),
+                network = Global.DefaultNetwork,
+                headerType = Global.None,
+                streamSecurity = Global.StreamSecurity,
+                sni = query["sni"] ?? string.Empty,
+                allowInsecure = insecure == null ? string.Empty : (insecure == "1").ToString()
+            };
+        }
+
         private static VmessItem ResolveStdVLESS(string result, out bool unsupportedSettings)
         {
             VmessItem item = new VmessItem

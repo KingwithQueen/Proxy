@@ -19,7 +19,10 @@ namespace v2rayN.Forms
             Text = (eConfigType).ToString();
             
             cmbCoreType.Items.AddRange(LazyConfig.GetCoreTypeNames(eConfigType));
-            cmbCoreType.Items.Add(string.Empty);
+            if (eConfigType != EConfigType.AnyTLS)
+            {
+                cmbCoreType.Items.Add(string.Empty);
+            }
 
             switch (eConfigType)
             {
@@ -57,6 +60,13 @@ namespace v2rayN.Forms
 
                     cmbFlow6.Items.AddRange(Global.xtlsFlows.ToArray());
                     break;
+                case EConfigType.AnyTLS:
+                    panTrojan.Dock = DockStyle.Fill;
+                    panTrojan.Visible = true;
+                    cmbFlow6.Visible = false;
+                    label14.Visible = false;
+                    transportControl.UseTcpTlsOnly = true;
+                    break;
             }
 
             if (vmessItem != null)
@@ -67,9 +77,15 @@ namespace v2rayN.Forms
             {
                 vmessItem = new VmessItem
                 {
-                    groupId = groupId
+                    groupId = groupId,
+                    configType = eConfigType
                 };
                 ClearServer();
+            }
+            if (eConfigType == EConfigType.AnyTLS)
+            {
+                cmbCoreType.SelectedIndex = 0;
+                cmbCoreType.Enabled = false;
             }
         }
 
@@ -105,6 +121,9 @@ namespace v2rayN.Forms
                 case EConfigType.Trojan:
                     txtId6.Text = vmessItem.id;
                     cmbFlow6.Text = vmessItem.flow;
+                    break;
+                case EConfigType.AnyTLS:
+                    txtId6.Text = vmessItem.id;
                     break;
             }
 
@@ -146,6 +165,10 @@ namespace v2rayN.Forms
                     txtId6.Text = "";
                     cmbFlow6.Text = "";
                     break;
+                case EConfigType.AnyTLS:
+                    txtId6.Text = "";
+                    txtPort.Text = "443";
+                    break;
             }
 
             transportControl.ClearServer(vmessItem);
@@ -186,6 +209,9 @@ namespace v2rayN.Forms
                     id = txtId6.Text;
                     flow = cmbFlow6.Text;
                     break;
+                case EConfigType.AnyTLS:
+                    id = txtId6.Text;
+                    break;
             }
 
             if (Utils.IsNullOrEmpty(address))
@@ -211,7 +237,12 @@ namespace v2rayN.Forms
                     return;
                 }
             }
-            if (eConfigType != EConfigType.Socks)
+            if (eConfigType == EConfigType.AnyTLS && string.IsNullOrEmpty(id))
+            {
+                UI.Show(ResUI.FillPassword);
+                return;
+            }
+            if (eConfigType != EConfigType.Socks && eConfigType != EConfigType.AnyTLS)
             {
                 if (Utils.IsNullOrEmpty(id))
                 {
@@ -255,6 +286,9 @@ namespace v2rayN.Forms
                 case EConfigType.Trojan:
                     vmessItem.flow = flow;
                     ret = ConfigHandler.AddTrojanServer(ref config, vmessItem);
+                    break;
+                case EConfigType.AnyTLS:
+                    ret = ConfigHandler.AddAnyTlsServer(ref config, vmessItem);
                     break;
             }
 
