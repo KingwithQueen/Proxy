@@ -377,7 +377,7 @@ static bool parse_http(char *text, size_t header_size, LocalRequest *request)
                 return false;
             length_seen = true;
         } else if (equal_name(field->name, "Transfer-Encoding")) {
-            /* A single chunked coding gives the local relay an unambiguous body length. */
+            /* 仅接受单一的 chunked 编码，以便本地转发明确正文边界。 */
             if (transfer_seen || !equal_name(field->value, "chunked") ||
                 !strcmp(version, "HTTP/1.0"))
                 return false;
@@ -424,7 +424,7 @@ static bool http_request(SOCKET socket, LocalRequest *request, ULONGLONG deadlin
                 continue;
             size_t header_size = cursor + 4;
             size_t extra = used - header_size;
-            /* Terminate within the final CRLF so bytes belonging to the body stay intact. */
+            /* 在末尾的 CRLF 内加上终止符，保留紧跟其后的正文。 */
             if (memchr(bytes, '\0', header_size))
                 break;
             bytes[header_size - 2] = '\0';

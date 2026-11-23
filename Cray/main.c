@@ -26,13 +26,7 @@ static unsigned int __stdcall serve_client(void *argument)
         !read_local_request(client.socket, client.http, &request))
         goto done;
 
-    TlsSession session;
-    bool connected = tls_connect(&session, &tls, &settings) &&
-                     send_trojan_request(&session, &settings, &request.target);
-    if (reply_local(client.socket, request.protocol, connected) && connected &&
-        (!request.initial_size || send_tls(&session, request.initial, request.initial_size)))
-        relay(client.socket, &session, &request.body);
-    tls_close(&session);
+    serve_upstream(client.socket, &request, &tls, &settings);
 done:
     closesocket(client.socket);
     InterlockedDecrement(&active_workers);
@@ -129,7 +123,7 @@ int wmain(int argc, wchar_t **argv)
         fprintf(stderr, "Cray: Winsock could not initialize (%d)\n", status);
         return 1;
     }
-    if (!read_settings(&settings, argv[2]) || !tls_init(&tls, &settings)) {
+    if (!read_settings(&settings, argv[2]) || (settings.use_tls && !tls_init(&tls, &settings))) {
         SecureZeroMemory(&settings, sizeof(settings));
         WSACleanup();
         return 1;
@@ -163,9 +157,10 @@ cleanup:
         closesocket(socks);
     if (http != INVALID_SOCKET)
         closesocket(http);
-    /* Process exit tears down any connections still using the shared TLS config. */
+    /* 仍有线程使用共享 TLS 配置时，由进程退出统一释放资源。 */
     if (InterlockedCompareExchange(&active_workers, 0, 0) == 0) {
-        tls_free(&tls);
+        if (settings.use_tls)
+            tls_free(&tls);
         SecureZeroMemory(&settings, sizeof(settings));
         WSACleanup();
     }

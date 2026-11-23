@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core.h"
+#include "vmess.h"
 
 #include <bcrypt.h>
 #include <limits.h>
@@ -13,6 +14,20 @@
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/threading.h"
 #include "psa/crypto.h"
+
+typedef struct {
+    unsigned char data[RELAY_BUFFER_SIZE + VMESS_WRITE_OVERHEAD];
+    size_t offset, end;
+} RelayBuffer;
+
+typedef struct {
+    mbedtls_ssl_context context;
+    SOCKET socket;
+    bool use_tls;
+    VmessSession *vmess;
+    RelayBuffer *output;
+    int read_status;
+} UpstreamSession;
 
 static void tls_error(const char *action, int code)
 {
@@ -115,7 +130,7 @@ bool tls_init(TlsConfig *tls, Settings *settings)
         mbedtls_ssl_conf_ca_chain(&tls->config, &tls->roots, NULL);
         mbedtls_ssl_conf_authmode(&tls->config, MBEDTLS_SSL_VERIFY_REQUIRED);
     } else {
-        /* The Windows chain check below is mandatory before writing any proxy data. */
+        /* 转发数据前还必须通过 Windows 的证书链校验。 */
         mbedtls_ssl_conf_authmode(&tls->config, MBEDTLS_SSL_VERIFY_OPTIONAL);
     }
     if (settings->alpn[0]) {
@@ -176,7 +191,7 @@ static bool verify_windows_chain(const char *hostname, const mbedtls_x509_crt *p
             goto cleanup;
         ssl_policy.pwszServerName = name;
     }
-    /* Numeric addresses are matched against the raw IP SAN before this check. */
+    /* 数字地址在此之前已与证书中的 IP SAN 比对。 */
     CERT_CHAIN_POLICY_PARA policy = { sizeof(policy), 0, &ssl_policy };
     CERT_CHAIN_POLICY_STATUS status = { 0 };
     status.cbSize = sizeof(status);
@@ -214,7 +229,7 @@ static SOCKET connect_server(const Settings *settings, ULONGLONG deadline)
     hints.ai_protocol = IPPROTO_TCP;
     snprintf(port, sizeof(port), "%u", settings->server_port);
     if (getaddrinfo(settings->server, port, &hints, &addresses)) {
-        fprintf(stderr, "Cray: could not resolve the Trojan server\n");
+        fprintf(stderr, "Cray: could not resolve the upstream server\n");
         return INVALID_SOCKET;
     }
     for (ADDRINFOA *addr = addresses; addr && GetTickCount64() < deadline; addr = addr->ai_next) {
@@ -238,7 +253,7 @@ static SOCKET connect_server(const Settings *settings, ULONGLONG deadline)
     }
     freeaddrinfo(addresses);
     if (upstream == INVALID_SOCKET)
-        fprintf(stderr, "Cray: could not connect to the Trojan server\n");
+        fprintf(stderr, "Cray: could not connect to the upstream server\n");
     return upstream;
 }
 
@@ -266,21 +281,23 @@ static int recv_bio(void *opaque, unsigned char *buffer, size_t size)
     return error == WSAECONNRESET ? MBEDTLS_ERR_NET_CONN_RESET : MBEDTLS_ERR_NET_RECV_FAILED;
 }
 
-static bool tls_wait(const TlsSession *session, int status, ULONGLONG deadline)
+static bool stream_wait(const UpstreamSession *session, int status, ULONGLONG deadline)
 {
     return (status == MBEDTLS_ERR_SSL_WANT_READ || status == MBEDTLS_ERR_SSL_WANT_WRITE) &&
            wait_socket(session->socket, status == MBEDTLS_ERR_SSL_WANT_READ, deadline) > 0;
 }
 
-bool tls_connect(TlsSession *session, const TlsConfig *tls, const Settings *settings)
+static bool stream_connect(UpstreamSession *session, const TlsConfig *tls,
+                           const Settings *settings)
 {
     ULONGLONG deadline = GetTickCount64() + HANDSHAKE_TIMEOUT;
     unsigned char ip[16];
     size_t ip_size = 0;
     mbedtls_ssl_init(&session->context);
+    session->use_tls = settings->use_tls;
     session->socket = connect_server(settings, deadline);
-    if (session->socket == INVALID_SOCKET)
-        return false;
+    if (session->socket == INVALID_SOCKET || !settings->use_tls)
+        return session->socket != INVALID_SOCKET;
 
     if (InetPtonA(AF_INET, settings->sni, ip) == 1)
         ip_size = 4;
@@ -297,12 +314,12 @@ bool tls_connect(TlsSession *session, const TlsConfig *tls, const Settings *sett
     mbedtls_ssl_set_bio(&session->context, &session->socket, send_bio, recv_bio, NULL);
     do {
         result = mbedtls_ssl_handshake(&session->context);
-    } while (result && tls_wait(session, result, deadline));
+    } while (result && stream_wait(session, result, deadline));
     if (result) {
         if (result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE)
-            fprintf(stderr, "Cray: Trojan TLS handshake timed out or disconnected\n");
+            fprintf(stderr, "Cray: upstream TLS handshake timed out or disconnected\n");
         else
-            tls_error("Trojan TLS handshake failed", result);
+            tls_error("upstream TLS handshake failed", result);
         return false;
     }
     if (!settings->verify_tls)
@@ -324,32 +341,67 @@ bool tls_connect(TlsSession *session, const TlsConfig *tls, const Settings *sett
     return settings->ca_file[0] || verify_windows_chain(hostname, peer);
 }
 
-void tls_close(TlsSession *session)
+static void stream_close(UpstreamSession *session)
 {
+    if (session->vmess)
+        vmess_close(session->vmess);
     mbedtls_ssl_free(&session->context);
     if (session->socket != INVALID_SOCKET)
         closesocket(session->socket);
 }
 
-bool send_tls(TlsSession *session, const void *data, size_t size)
+static int stream_write(UpstreamSession *session, const unsigned char *data, size_t size)
 {
+    if (size > RELAY_BUFFER_SIZE)
+        size = RELAY_BUFFER_SIZE;
+    return session->use_tls ? mbedtls_ssl_write(&session->context, data, size)
+                            : send_bio(&session->socket, data, size);
+}
+
+static int stream_read(UpstreamSession *session, unsigned char *data, size_t size)
+{
+    int result = session->use_tls ? mbedtls_ssl_read(&session->context, data, size)
+                                 : recv_bio(&session->socket, data, size);
+    return result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ? 0 : result;
+}
+
+static int stream_finish(UpstreamSession *session)
+{
+    if (session->use_tls)
+        return mbedtls_ssl_close_notify(&session->context);
+    return shutdown(session->socket, SD_SEND) ? MBEDTLS_ERR_NET_SEND_FAILED : 0;
+}
+
+static bool send_upstream(void *opaque, const void *data, size_t size)
+{
+    UpstreamSession *session = opaque;
+    RelayBuffer *output = session->output;
+    if (output) {
+        if (size > sizeof(output->data) - output->end)
+            return false;
+        memcpy(output->data + output->end, data, size);
+        output->end += size;
+        return true;
+    }
+
     ULONGLONG deadline = GetTickCount64() + HANDSHAKE_TIMEOUT;
     const unsigned char *cursor = data;
     while (size && GetTickCount64() < deadline) {
-        int sent = mbedtls_ssl_write(&session->context, cursor, size);
+        int sent = stream_write(session, cursor, size);
         if (sent > 0) {
             cursor += sent;
             size -= (size_t)sent;
-        } else if (!tls_wait(session, sent, deadline)) {
+        } else if (!stream_wait(session, sent, deadline)) {
             if (sent != MBEDTLS_ERR_SSL_WANT_READ && sent != MBEDTLS_ERR_SSL_WANT_WRITE)
-                tls_error("cannot write to the Trojan server", sent);
+                tls_error("cannot write to the upstream server", sent);
             return false;
         }
     }
     return size == 0;
 }
 
-bool send_trojan_request(TlsSession *session, const Settings *settings, const Destination *target)
+static bool send_trojan_request(UpstreamSession *session, const Settings *settings,
+                                const Destination *target)
 {
     unsigned char request[AUTH_HEX_SIZE + 2 + 1 + 1 + 1 + MAX_HOST + 2 + 2];
     memcpy(request, settings->password_hash, AUTH_HEX_SIZE);
@@ -374,85 +426,117 @@ bool send_trojan_request(TlsSession *session, const Settings *settings, const De
     request[length++] = (unsigned char)(target->port & 255);
     request[length++] = '\r';
     request[length++] = '\n';
-    bool success = send_tls(session, request, length);
+    bool success = send_upstream(session, request, length);
     SecureZeroMemory(request, sizeof(request));
     return success;
 }
 
-typedef struct {
-    unsigned char data[RELAY_BUFFER_SIZE];
-    size_t offset, end;
-} Buffer;
-
-typedef enum { TLS_READY, TLS_READ_READY, TLS_WRITE_READY } Readiness;
+typedef enum { STREAM_READY, STREAM_READ_READY, STREAM_WRITE_READY } Readiness;
 
 static void watch(SOCKET socket, Readiness state, fd_set *reads, fd_set *writes)
 {
-    if (state == TLS_READ_READY)
+    if (state == STREAM_READ_READY)
         FD_SET(socket, reads);
-    else if (state == TLS_WRITE_READY)
+    else if (state == STREAM_WRITE_READY)
         FD_SET(socket, writes);
 }
 
 static bool ready(SOCKET socket, Readiness state, fd_set *reads, fd_set *writes)
 {
-    return (state == TLS_READ_READY && FD_ISSET(socket, reads)) ||
-           (state == TLS_WRITE_READY && FD_ISSET(socket, writes));
+    return (state == STREAM_READ_READY && FD_ISSET(socket, reads)) ||
+           (state == STREAM_WRITE_READY && FD_ISSET(socket, writes));
 }
 
 static Readiness want(int result)
 {
     if (result == MBEDTLS_ERR_SSL_WANT_READ)
-        return TLS_READ_READY;
+        return STREAM_READ_READY;
     if (result == MBEDTLS_ERR_SSL_WANT_WRITE)
-        return TLS_WRITE_READY;
-    return TLS_READY;
+        return STREAM_WRITE_READY;
+    return STREAM_READY;
 }
 
-void relay(SOCKET local, TlsSession *session, RequestBody *body)
+static int recv_vmess(void *opaque, void *data, size_t size)
 {
-    Buffer to_local = { 0 }, to_tls = { 0 };
+    UpstreamSession *session = opaque;
+    int result = stream_read(session, data, size);
+    session->read_status = result;
+    if (want(result) != STREAM_READY)
+        return -2;
+    return result < 0 ? -1 : result;
+}
+
+static bool queue_upload(UpstreamSession *session, const unsigned char *data, size_t size)
+{
+    return session->vmess ? vmess_send(session->vmess, data, size)
+                          : send_upstream(session, data, size);
+}
+
+static void relay(SOCKET local, UpstreamSession *session, LocalRequest *request,
+                  bool vmess_framed)
+{
+    RelayBuffer to_local = { 0 }, to_upstream = { 0 };
+    unsigned char from_local[RELAY_BUFFER_SIZE];
+    size_t initial_offset = 0;
     SOCKET upstream = session->socket;
-    Readiness read_retry = TLS_READY, write_retry = TLS_READY;
+    Readiness read_retry = STREAM_READY, write_retry = STREAM_READY;
     bool local_eof = false, upstream_eof = false, close_sent = false;
     ULONGLONG deadline = GetTickCount64() + IDLE_TIMEOUT;
+    session->output = &to_upstream;
 
     while (!upstream_eof || to_local.offset < to_local.end) {
         fd_set reads, writes;
         FD_ZERO(&reads);
         FD_ZERO(&writes);
 
-        bool upload_pending = to_tls.offset < to_tls.end;
+        bool upload_pending = to_upstream.offset < to_upstream.end;
+        if (!upstream_eof && !upload_pending) {
+            to_upstream.offset = to_upstream.end = 0;
+            if (initial_offset < request->initial_size) {
+                size_t size = request->initial_size - initial_offset;
+                if (size > RELAY_BUFFER_SIZE)
+                    size = RELAY_BUFFER_SIZE;
+                if (!queue_upload(session, request->initial + initial_offset, size))
+                    break;
+                initial_offset += size;
+            } else if (local_eof && vmess_framed && !close_sent) {
+                /* VMess 分帧流以空帧结束写入，外层连接仍可接收响应。 */
+                if (!vmess_finish(session->vmess))
+                    break;
+                close_sent = true;
+            }
+            upload_pending = to_upstream.end != 0;
+        }
         bool send_close = local_eof && !close_sent && !upload_pending;
-        if (!upstream_eof && !local_eof && !upload_pending && !body_finished(body))
+        if (!upstream_eof && !local_eof && !upload_pending && !body_finished(&request->body))
             FD_SET(local, &reads);
         if (to_local.offset < to_local.end)
             FD_SET(local, &writes);
 
-        /* Retry a blocked TLS write before calling another TLS operation. */
+        /* TLS 写入须使用原缓冲区重试，再继续读取。 */
         bool reading = !upstream_eof && to_local.offset == to_local.end &&
-                       write_retry == TLS_READY;
+                       (!session->use_tls || write_retry == STREAM_READY);
         bool writing = !upstream_eof && (upload_pending || send_close) &&
-                       read_retry != TLS_WRITE_READY;
-        Readiness read_when = read_retry == TLS_READY ? TLS_READ_READY : read_retry;
-        Readiness write_when = write_retry == TLS_READY ? TLS_WRITE_READY : write_retry;
+                       read_retry != STREAM_WRITE_READY;
+        Readiness read_when = read_retry == STREAM_READY ? STREAM_READ_READY : read_retry;
+        Readiness write_when = write_retry == STREAM_READY ? STREAM_WRITE_READY : write_retry;
         if (reading)
             watch(upstream, read_when, &reads, &writes);
         if (writing)
             watch(upstream, write_when, &reads, &writes);
         if (!reads.fd_count && !writes.fd_count)
-            return;
+            break;
 
         ULONGLONG now = GetTickCount64();
         if (now >= deadline)
-            return;
-        bool decrypted_pending = reading && read_when == TLS_READ_READY &&
+            break;
+        bool decrypted_pending = session->use_tls && reading && read_when == STREAM_READ_READY &&
                                  mbedtls_ssl_check_pending(&session->context);
         ULONGLONG remaining = decrypted_pending ? 0 : deadline - now;
         struct timeval wait = { (long)(remaining / 1000), (long)((remaining % 1000) * 1000) };
         int ready_count = select(0, &reads, &writes, NULL, &wait);
         if (ready_count < 0 || (!ready_count && !decrypted_pending))
-            return;
+            break;
         bool progress = false;
 
         if (FD_ISSET(local, &writes)) {
@@ -462,54 +546,78 @@ void relay(SOCKET local, TlsSession *session, RequestBody *body)
                 to_local.offset += (size_t)sent;
                 progress = true;
             } else if (!sent || WSAGetLastError() != WSAEWOULDBLOCK) {
-                return;
+                break;
             }
         }
         if (FD_ISSET(local, &reads)) {
-            int received = recv(local, (char *)to_tls.data, sizeof(to_tls.data), 0);
+            int received = recv(local, (char *)from_local, sizeof(from_local), 0);
             if (received > 0) {
-                to_tls.end = (size_t)received;
-                to_tls.offset = 0;
-                if (!next_body_data(body, to_tls.data, &to_tls.end))
-                    return;
+                size_t size = (size_t)received;
+                if (!next_body_data(&request->body, from_local, &size) ||
+                    (size && !queue_upload(session, from_local, size)))
+                    break;
                 progress = true;
             } else if (!received) {
-                if (body->mode != BODY_TUNNEL)
-                    return;
+                if (request->body.mode != BODY_TUNNEL)
+                    break;
                 local_eof = true;
             } else if (WSAGetLastError() != WSAEWOULDBLOCK) {
-                return;
+                break;
             }
         }
 
         if (writing && ready(upstream, write_when, &reads, &writes)) {
-            int sent = send_close ? mbedtls_ssl_close_notify(&session->context) :
-                mbedtls_ssl_write(&session->context, to_tls.data + to_tls.offset,
-                                  to_tls.end - to_tls.offset);
+            int sent = send_close ? stream_finish(session) :
+                stream_write(session, to_upstream.data + to_upstream.offset,
+                             to_upstream.end - to_upstream.offset);
             write_retry = want(sent);
             if (send_close && sent == 0) {
                 close_sent = true;
                 progress = true;
             } else if (sent > 0) {
-                to_tls.offset += (size_t)sent;
+                to_upstream.offset += (size_t)sent;
                 progress = true;
-            } else if (write_retry == TLS_READY) {
-                return;
+            } else if (write_retry == STREAM_READY) {
+                break;
             }
         }
-        if (reading && write_retry == TLS_READY &&
+        if (reading && (!session->use_tls || write_retry == STREAM_READY) &&
             (decrypted_pending || ready(upstream, read_when, &reads, &writes))) {
-            int received = mbedtls_ssl_read(&session->context, to_local.data, sizeof(to_local.data));
-            read_retry = want(received);
+            int received;
+            if (session->vmess) {
+                received = vmess_read(session->vmess, to_local.data, RELAY_BUFFER_SIZE, recv_vmess);
+                read_retry = received == -2 ? want(session->read_status) : STREAM_READY;
+            } else {
+                received = stream_read(session, to_local.data, RELAY_BUFFER_SIZE);
+                read_retry = want(received);
+            }
             if (received > 0) {
                 to_local.offset = 0;
                 to_local.end = (size_t)received;
                 progress = true;
-            } else if (read_retry == TLS_READY) {
+            } else if (read_retry == STREAM_READY) {
                 upstream_eof = true;
             }
         }
         if (progress)
             deadline = GetTickCount64() + IDLE_TIMEOUT;
     }
+    session->output = NULL;
+}
+
+void serve_upstream(SOCKET local, LocalRequest *request, const TlsConfig *tls,
+                    const Settings *settings)
+{
+    UpstreamSession session = { 0 };
+    bool connected = stream_connect(&session, tls, settings);
+    if (connected && settings->protocol == OUTBOUND_VMESS) {
+        session.vmess = vmess_open(settings, &request->target, &session, send_upstream);
+        connected = session.vmess != NULL;
+    } else if (connected) {
+        connected = send_trojan_request(&session, settings, &request->target);
+    }
+    if (reply_local(local, request->protocol, connected) && connected)
+        relay(local, &session, request,
+              session.vmess && settings->vmess_security != VMESS_SECURITY_ZERO);
+    stream_close(&session);
 }

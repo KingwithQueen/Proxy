@@ -810,7 +810,7 @@ namespace v2rayN.Mode
             get; set;
         }
 
-        public ECoreType coreType
+        public ECoreType? coreType
         {
             get; set;
         }

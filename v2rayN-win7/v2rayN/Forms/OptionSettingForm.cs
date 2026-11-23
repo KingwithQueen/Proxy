@@ -121,15 +121,22 @@ namespace v2rayN.Forms
                 config.coreTypeItem.Add(new CoreTypeItem()
                 {
                     configType = it,
-                    coreType = LazyConfig.GetDefaultCoreType(it)
+                    coreType = it == EConfigType.VMess ? (ECoreType?)null : LazyConfig.GetDefaultCoreType(it)
                 });
             }
             for (int k = 1; k <= config.coreTypeItem.Count; k++)
             {
                 var item = config.coreTypeItem[k - 1];
-                ((ComboBox)tabPageCoreType.Controls[$"cmbCoreType{k}"]).Items.AddRange(LazyConfig.GetCoreTypeNames(item.configType));
+                var corePicker = (ComboBox)tabPageCoreType.Controls[$"cmbCoreType{k}"];
+                var automatic = item.configType == EConfigType.VMess;
+                if (automatic)
+                {
+                    corePicker.Items.Add(ResUI.CoreTypeAuto);
+                }
+                corePicker.Items.AddRange(LazyConfig.GetCoreTypeNames(item.configType));
                 tabPageCoreType.Controls[$"labCoreType{k}"].Text = item.configType.ToString();
-                tabPageCoreType.Controls[$"cmbCoreType{k}"].Text = item.coreType.ToString();
+                corePicker.SelectedItem = item.coreType?.ToString()
+                    ?? (automatic ? ResUI.CoreTypeAuto : LazyConfig.GetDefaultCoreType(item.configType).ToString());
             }
         }
 
@@ -315,7 +322,12 @@ namespace v2rayN.Forms
             for (int k = 1; k <= config.coreTypeItem.Count; k++)
             {
                 var item = config.coreTypeItem[k - 1];
-                if (Enum.TryParse(tabPageCoreType.Controls[$"cmbCoreType{k}"].Text, out ECoreType selectedCore))
+                var coreName = tabPageCoreType.Controls[$"cmbCoreType{k}"].Text;
+                if (item.configType == EConfigType.VMess && coreName == ResUI.CoreTypeAuto)
+                {
+                    item.coreType = null;
+                }
+                else if (Enum.TryParse(coreName, out ECoreType selectedCore))
                 {
                     item.coreType = selectedCore;
                 }

@@ -1134,7 +1134,9 @@ namespace v2rayN.Resx {
             }
         }
 
+        internal static string CoreTypeAuto => ResourceManager.GetString(nameof(CoreTypeAuto), resourceCulture);
         internal static string CrayTransport => ResourceManager.GetString(nameof(CrayTransport), resourceCulture);
+        internal static string CrayVmessSettings => ResourceManager.GetString(nameof(CrayVmessSettings), resourceCulture);
         internal static string CrayLocalPort => ResourceManager.GetString(nameof(CrayLocalPort), resourceCulture);
         internal static string CrayMissing => ResourceManager.GetString(nameof(CrayMissing), resourceCulture);
         internal static string CrayStartup => ResourceManager.GetString(nameof(CrayStartup), resourceCulture);

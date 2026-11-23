@@ -479,7 +479,13 @@
     <value>Normal use of this version requires .NET Framework 4.8</value>
   </data>
   <data name="CrayTransport" xml:space="preserve">
-    <value>Cray requires a Trojan node with plain TCP transport and TLS. Check the transport settings or select another installed core for this node.</value>
+    <value>Cray supports Trojan over TCP with TLS and VMess AEAD over TCP with optional TLS. Use TCP without header obfuscation, or select another installed core for this node.</value>
+  </data>
+  <data name="CrayVmessSettings" xml:space="preserve">
+    <value>Cray requires a VMess UUID, alterId set to 0, and encryption set to auto, aes-128-gcm, chacha20-poly1305, none, or zero.</value>
+  </data>
+  <data name="CoreTypeAuto" xml:space="preserve">
+    <value>Automatic</value>
   </data>
   <data name="CrayLocalPort" xml:space="preserve">
     <value>Check the local proxy port settings. SOCKS and HTTP require distinct ports in the range 1 to 65535.</value>

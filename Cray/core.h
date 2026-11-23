@@ -21,15 +21,30 @@ enum {
     MAX_WORKERS = 128
 };
 
+typedef enum {
+    OUTBOUND_TROJAN,
+    OUTBOUND_VMESS
+} OutboundProtocol;
+
+typedef enum {
+    VMESS_SECURITY_AES_128_GCM = 3,
+    VMESS_SECURITY_CHACHA20_POLY1305 = 4,
+    VMESS_SECURITY_NONE = 5,
+    VMESS_SECURITY_ZERO = 6
+} VmessSecurity;
+
 typedef struct {
     char server[MAX_HOST + 1];
     char sni[MAX_HOST + 1];
     unsigned short server_port, socks_port, http_port;
     char password_hash[AUTH_HEX_SIZE + 1];
+    unsigned char vmess_uuid[16];
+    OutboundProtocol protocol;
+    VmessSecurity vmess_security;
     wchar_t ca_file[1024];
     char alpn_storage[MAX_ALPN][256];
     const char *alpn[MAX_ALPN + 1];
-    bool verify_tls;
+    bool use_tls, verify_tls;
 } Settings;
 
 typedef struct {
@@ -81,11 +96,6 @@ typedef struct {
     mbedtls_x509_crt roots;
 } TlsConfig;
 
-typedef struct {
-    mbedtls_ssl_context context;
-    SOCKET socket;
-} TlsSession;
-
 bool read_settings(Settings *settings, const wchar_t *file);
 bool normalize_host(char host[MAX_HOST + 1]);
 
@@ -99,11 +109,7 @@ bool body_finished(const RequestBody *body);
 
 bool tls_init(TlsConfig *tls, Settings *settings);
 void tls_free(TlsConfig *tls);
-bool tls_connect(TlsSession *session, const TlsConfig *tls, const Settings *settings);
-void tls_close(TlsSession *session);
-bool send_trojan_request(TlsSession *session, const Settings *settings,
-                         const Destination *target);
-bool send_tls(TlsSession *session, const void *data, size_t size);
-void relay(SOCKET local, TlsSession *session, RequestBody *body);
+void serve_upstream(SOCKET local, LocalRequest *request, const TlsConfig *tls,
+                    const Settings *settings);
 
 #endif

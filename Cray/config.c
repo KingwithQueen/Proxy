@@ -173,6 +173,17 @@ static bool json_port(Json *json, unsigned short *port)
     return true;
 }
 
+static bool json_bool(Json *json, bool *value)
+{
+    if (literal(json, "true"))
+        *value = true;
+    else if (literal(json, "false"))
+        *value = false;
+    else
+        return false;
+    return true;
+}
+
 bool normalize_host(char host[MAX_HOST + 1])
 {
     unsigned char address[16];
@@ -257,13 +268,71 @@ static bool json_password(Json *json, Settings *settings, bool hashed)
     return valid;
 }
 
+static bool json_protocol(Json *json, Settings *settings)
+{
+    char value[16];
+    if (!json_string(json, value, sizeof(value), NULL))
+        return false;
+    if (!strcmp(value, "trojan"))
+        settings->protocol = OUTBOUND_TROJAN;
+    else if (!strcmp(value, "vmess"))
+        settings->protocol = OUTBOUND_VMESS;
+    else
+        return false;
+    return true;
+}
+
+static bool json_vmess_uuid(Json *json, unsigned char uuid[16])
+{
+    char text[37];
+    size_t position = 0;
+    bool valid = false;
+    if (!json_string(json, text, sizeof(text), NULL) || strlen(text) != 36)
+        goto cleanup;
+
+    /* 按 UUID 的文本顺序读入字节，避免 Windows GUID 字段的字节序差异。 */
+    for (size_t i = 0; i < 16; ++i) {
+        if ((i == 4 || i == 6 || i == 8 || i == 10) && text[position++] != '-')
+            goto cleanup;
+        int high = hex_value((unsigned char)text[position++]);
+        int low = hex_value((unsigned char)text[position++]);
+        if (high < 0 || low < 0)
+            goto cleanup;
+        uuid[i] = (unsigned char)((high << 4) | low);
+    }
+    valid = true;
+
+cleanup:
+    SecureZeroMemory(text, sizeof(text));
+    return valid;
+}
+
+static bool json_vmess_security(Json *json, VmessSecurity *security)
+{
+    char value[32];
+    if (!json_string(json, value, sizeof(value), NULL))
+        return false;
+    if (!strcmp(value, "auto") || !strcmp(value, "aes-128-gcm"))
+        *security = VMESS_SECURITY_AES_128_GCM;
+    else if (!strcmp(value, "chacha20-poly1305"))
+        *security = VMESS_SECURITY_CHACHA20_POLY1305;
+    else if (!strcmp(value, "none"))
+        *security = VMESS_SECURITY_NONE;
+    else if (!strcmp(value, "zero"))
+        *security = VMESS_SECURITY_ZERO;
+    else
+        return false;
+    return true;
+}
+
 static bool parse_settings(Settings *settings, Json *json)
 {
     enum { SERVER, SERVER_PORT, PASSWORD, PASSWORD_HASH, SNI, VERIFY,
-           SOCKS, HTTP, ALPN, CA, NUM_FIELDS };
+           SOCKS, HTTP, ALPN, CA, PROTOCOL, UUID, ALTER_ID, SECURITY, TLS, NUM_FIELDS };
     static const char *const fields[] = {
         "server", "server_port", "password", "password_sha224", "sni", "verify_tls",
-        "socks_port", "http_port", "alpn", "ca_file"
+        "socks_port", "http_port", "alpn", "ca_file", "protocol", "uuid", "alter_id",
+        "security", "tls"
     };
     unsigned int present = 0;
     if (!take(json, '{'))
@@ -294,13 +363,7 @@ static bool parse_settings(Settings *settings, Json *json)
             value = json_string(json, settings->sni, sizeof(settings->sni), NULL);
             break;
         case VERIFY:
-            if (literal(json, "true")) {
-                settings->verify_tls = true;
-                value = true;
-            } else if (literal(json, "false")) {
-                settings->verify_tls = false;
-                value = true;
-            }
+            value = json_bool(json, &settings->verify_tls);
             break;
         case SOCKS:
             value = json_port(json, &settings->socks_port);
@@ -318,6 +381,22 @@ static bool parse_settings(Settings *settings, Json *json)
                                     settings->ca_file, 1024) > 0;
             break;
         }
+        case PROTOCOL:
+            value = json_protocol(json, settings);
+            break;
+        case UUID:
+            value = json_vmess_uuid(json, settings->vmess_uuid);
+            break;
+        case ALTER_ID:
+            /* VMess AEAD 使用主 UUID，兼容配置中的 alter_id 固定为 0。 */
+            value = literal(json, "0");
+            break;
+        case SECURITY:
+            value = json_vmess_security(json, &settings->vmess_security);
+            break;
+        case TLS:
+            value = json_bool(json, &settings->use_tls);
+            break;
         }
         if (!value) {
             fprintf(stderr, "Cray: invalid config setting %s\n", fields[field]);
@@ -327,11 +406,32 @@ static bool parse_settings(Settings *settings, Json *json)
     if (!take(json, '}'))
         return false;
     skip_space(json);
-    return json->next == json->end && normalize_host(settings->server) &&
-           settings->server_port && settings->password_hash[0] &&
-           !((present & (1u << PASSWORD)) && (present & (1u << PASSWORD_HASH))) &&
-           settings->socks_port != settings->http_port &&
-           (!settings->sni[0] || normalize_host(settings->sni));
+    if (json->next != json->end || !normalize_host(settings->server) ||
+        !settings->server_port || settings->socks_port == settings->http_port ||
+        (settings->sni[0] && !normalize_host(settings->sni)))
+        return false;
+
+    const unsigned int password_fields = (1u << PASSWORD) | (1u << PASSWORD_HASH);
+    if (!(present & (1u << TLS)))
+        settings->use_tls = settings->protocol == OUTBOUND_TROJAN;
+    if (settings->protocol == OUTBOUND_VMESS) {
+        if (!(present & (1u << UUID)) || (present & password_fields)) {
+            fprintf(stderr, "Cray: use only uuid to authenticate VMess\n");
+            return false;
+        }
+    } else {
+        const unsigned int vmess_fields = (1u << UUID) | (1u << ALTER_ID) | (1u << SECURITY);
+        if (present & vmess_fields) {
+            fprintf(stderr, "Cray: uuid, alter_id and security require protocol vmess\n");
+            return false;
+        }
+        if (!settings->use_tls || !settings->password_hash[0] ||
+            (present & password_fields) == password_fields) {
+            fprintf(stderr, "Cray: Trojan requires TLS and exactly one password field\n");
+            return false;
+        }
+    }
+    return true;
 }
 
 bool read_settings(Settings *settings, const wchar_t *file)
@@ -359,8 +459,10 @@ bool read_settings(Settings *settings, const wchar_t *file)
             settings->socks_port = 10808;
             settings->http_port = 10809;
             settings->verify_tls = true;
+            settings->protocol = OUTBOUND_TROJAN;
+            settings->vmess_security = VMESS_SECURITY_AES_128_GCM;
             valid = parse_settings(settings, &json);
-            if (valid && !settings->sni[0])
+            if (valid && settings->use_tls && !settings->sni[0])
                 memcpy(settings->sni, settings->server, strlen(settings->server) + 1);
         }
         SecureZeroMemory(text, MAX_CONFIG + 1);

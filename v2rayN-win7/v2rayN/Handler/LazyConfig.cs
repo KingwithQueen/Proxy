@@ -49,7 +49,14 @@ namespace v2rayN.Handler
             }
 
             var item = config?.coreTypeItem?.FirstOrDefault(it => it.configType == eConfigType);
-            return item?.coreType ?? GetDefaultCoreType(eConfigType);
+            if (item?.coreType is ECoreType selected)
+            {
+                return selected;
+            }
+
+            return eConfigType == EConfigType.VMess && CrayConfig.SupportsVmess(vmessItem)
+                ? ECoreType.Cray
+                : GetDefaultCoreType(eConfigType);
         }
 
         public static ECoreType GetDefaultCoreType(EConfigType configType)
@@ -59,7 +66,7 @@ namespace v2rayN.Handler
 
         public static string[] GetCoreTypeNames(EConfigType configType)
         {
-            return configType == EConfigType.Trojan
+            return configType == EConfigType.Trojan || configType == EConfigType.VMess
                 ? Global.coreTypes.Concat(new[] { nameof(ECoreType.Cray) }).ToArray()
                 : Global.coreTypes.ToArray();
         }
