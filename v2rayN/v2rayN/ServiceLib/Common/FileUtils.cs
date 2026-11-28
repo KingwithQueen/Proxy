@@ -237,15 +237,20 @@ public static class FileUtils
     public static async Task<string> CreateLinuxShellFile(string fileName, string contents, bool overwrite)
     {
         var shFilePath = Utils.GetBinConfigPath(fileName);
+        var normalizedContents = contents.Replace("\r\n", "\n").Replace("\r", "\n");
 
-        // Check if the file already exists and if we should overwrite it
+        // Check if the file already exists and if we should overwrite it (also repair legacy CRLF scripts)
         if (!overwrite && File.Exists(shFilePath))
         {
-            return shFilePath;
+            var existing = await File.ReadAllTextAsync(shFilePath);
+            if (!existing.Contains('\r'))
+            {
+                return shFilePath;
+            }
         }
 
         File.Delete(shFilePath);
-        await File.WriteAllTextAsync(shFilePath, contents);
+        await File.WriteAllTextAsync(shFilePath, normalizedContents);
         await Utils.SetLinuxChmod(shFilePath);
 
         return shFilePath;

@@ -54,7 +54,7 @@
                 Orientation="Horizontal">
                 <ComboBox
                     x:Name="cmbSystemProxy"
-                    Width="160"
+                    Width="185"
                     Margin="{StaticResource MarginLr8}"
                     ToolTip.Tip="{x:Static resx:ResUI.menuSystemproxy}">
                     <ComboBoxItem Content="{x:Static resx:ResUI.menuSystemProxyClear}" />
@@ -65,7 +65,7 @@
 
                 <ComboBox
                     x:Name="cmbRoutings2"
-                    Width="160"
+                    Width="205"
                     Margin="{StaticResource MarginLr8}"
                     DisplayMemberBinding="{Binding Remarks}"
                     ItemsSource="{Binding RoutingItems}"

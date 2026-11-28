@@ -20,7 +20,7 @@
 
             <TextBox
                 x:Name="cmbMsgFilter"
-                Width="200"
+                Width="250"
                 Margin="{StaticResource MarginLr8}"
                 VerticalContentAlignment="Center"
                 PlaceholderText="{x:Static resx:ResUI.MsgFilterTitle}"

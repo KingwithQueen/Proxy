@@ -63,7 +63,7 @@
 
                     <TextBox
                         x:Name="txtServerFilter"
-                        Width="200"
+                        Width="230"
                         Margin="{StaticResource MarginLr4}"
                         VerticalContentAlignment="Center"
                         PlaceholderText="{x:Static resx:ResUI.MsgServerTitle}"
@@ -257,7 +257,8 @@
                         Header="{x:Static resx:ResUI.LvTLS}"
                         Tag="StreamSecurity" />
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding SubRemarks}"
                         Header="{x:Static resx:ResUI.LvSubscription}"
                         Tag="SubRemarks" />
@@ -277,7 +278,8 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding SpeedVal}"
                         Header="{x:Static resx:ResUI.LvTestSpeed}"
                         Tag="SpeedVal" />
@@ -297,22 +299,26 @@
                     </DataGridTemplateColumn>
 
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding TodayUp}"
                         Header="{x:Static resx:ResUI.LvTodayUploadDataAmount}"
                         Tag="TodayUp" />
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding TodayDown}"
                         Header="{x:Static resx:ResUI.LvTodayDownloadDataAmount}"
                         Tag="TodayDown" />
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding TotalUp}"
                         Header="{x:Static resx:ResUI.LvTotalUploadDataAmount}"
                         Tag="TotalUp" />
                     <DataGridTextColumn
-                        Width="100"
+                        MinWidth="100"
+                        Width="Auto"
                         Binding="{Binding TotalDown}"
                         Header="{x:Static resx:ResUI.LvTotalDownloadDataAmount}"
                         Tag="TotalDown" />

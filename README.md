@@ -1,16 +1,27 @@
 # Proxy
 
-综合代理客户端与内核维护仓库，包含面向 **现代桌面系统（Windows 10/11+，规划支持 Linux）** 的 `Jray` + `v2rayN` 分支，以及面向 **Windows 7 SP1** 的 `v2rayN-win7` + `Cray` 分支。
+综合代理客户端与内核维护仓库，包含面向 **现代桌面系统（Windows 10/11+、Linux）** 的 `Jray` + `v2rayN` 分支，以及面向 **Windows 7 SP1** 的 `v2rayN-win7` + `Cray` 分支。
 
 | 目录 | 适用平台 | 说明 |
 | --- | --- | --- |
-| [`v2rayN/`](v2rayN/) | Windows 10/11+（规划 Linux） | 基于 `2dust/v2rayN`（`7.25.6`）改造版，集成 `Jray` 并设为默认核心，客户端与 `Jray` 更新源指向 Cloudflare R2（其余核心保持官方源） |
+| [`v2rayN/`](v2rayN/) | Windows 10/11+ / Linux | 基于 `2dust/v2rayN`（`7.25.6`）改造版，集成 `Jray` 并设为默认核心，客户端与 `Jray` 更新源指向 Cloudflare R2（其余核心保持官方源） |
 | [`Jray/`](Jray/) | Windows / Linux | 基于 `XTLS/Xray-core`（`v26.11.9`）改造版，原生实现 **AnyTLS**（v1/v2）入站与出站支持，无第三方 GPL 依赖 |
 | [`v2rayN-win7/`](v2rayN-win7/) | Windows 7 SP1 | 基于 v2rayN 5.39 改造的桌面客户端（Windows Forms / .NET Framework 4.8），集成 `Cray` 内核与批量真连接测速 |
 | [`Cray/`](Cray/) | Windows 7 SP1 | Win7 默认随包内核，基于 C11 与 Mbed TLS 3.6，支持 Trojan、VMess AEAD、标准 VLESS 和 AnyTLS 的 TCP 出站 |
 | [`xray/`](xray/) | Windows 7 SP1 | 基于 XTLS Win7 补丁版 Go 1.27.4 的 Xray-core `v26.11.9` 独立构建脚本，含 AnyTLS 实验性出站/入站补丁 |
 | [`docs/`](docs/) | 全部 | 使用说明、编译指南、R2 更新架构与 Win7 兼容性验证文档 |
 | [`licenses/`](licenses/) | Windows 7 SP1 | Win7 随包第三方依赖的开源许可证与版权声明 |
+
+## 预编译程序下载（Google 云端硬盘）
+
+| 程序 | 平台 | 文件 | 下载地址 |
+| --- | --- | --- | --- |
+| **v2rayN**（内置 `Jray` 及常用核心） | Windows x64 | `v2rayN-windows-64-Jray.rar` | [Google Drive - v2rayN/Windows](https://drive.google.com/drive/folders/1cMYTcB9qeCTlB3V5GkJkGH50CcZEE4c8) |
+| **v2rayN**（内置 `Jray` 及常用核心） | Linux x64 | `v2rayN-linux-64-Jray.tar.xz` | [Google Drive - v2rayN/Linux](https://drive.google.com/drive/folders/185whEayLOzPf_iRWRh93IzONyFGu5XLv) |
+| **Jray**（独立内核单文件） | Windows x64 | `jray.exe` | [Google Drive - Jray/Windows](https://drive.google.com/drive/folders/1-y0u6CrRYRRAXDO6eERQTr4gGC-6DPFr) |
+| **Jray**（独立内核单文件） | Linux x64 | `jray` | [Google Drive - Jray/Linux](https://drive.google.com/drive/folders/1_SXif_cOON9UYuP__Vcj3abrZON_K2Jk) |
+
+> 手动打包压缩与校验参数说明见 [`docs/Jray-v2rayN.md`](docs/Jray-v2rayN.md#4-手动打包与压缩参数防遗忘备忘)。
 
 ## 现代平台：Jray 与修改版 v2rayN
 
