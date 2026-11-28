@@ -1,17 +1,21 @@
 # Local SDKs, downloads and build outputs
 /.tools/
 /.cache/
-**/build/
-**/dist/
+/build/
+/dist/
+/xray/dist/
 **/bin/
 **/obj/
 **/out/
 **/artifacts/
 **/packages/
 **/.vs/
+**/TestResults/
 **/CMakeFiles/
 CMakeCache.txt
 compile_commands.json
+project.lock.json
+project.fragment.lock.json
 *.suo
 *.user
 *.userosscache
@@ -30,6 +34,12 @@ compile_commands.json
 *.vhdx
 *.log
 
+# Jray Go build outputs
+/Jray/jray
+/Jray/jray.exe
+*.out
+coverage.*
+
 # Test and VM workspaces
 **/tests/
 **/testdata/
@@ -38,7 +48,6 @@ compile_commands.json
 **/__pycache__/
 **/.pytest_cache/
 *.pyc
-*_test.go
 
 # User subscriptions, runtime configuration, credentials and certificates
 订阅地址.txt
